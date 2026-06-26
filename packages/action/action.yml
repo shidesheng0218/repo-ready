@@ -1,0 +1,26 @@
+name: RepoReady
+description: AI coding agent readiness checker for GitHub repositories.
+inputs:
+  language:
+    description: Report language: en or zh
+    required: false
+    default: en
+  min-score:
+    description: Minimum overall score required to pass
+    required: false
+    default: "0"
+  base-ref:
+    description: Base branch for score comparison
+    required: false
+    default: "main"
+  compare:
+    description: Show score diff against baseline
+    required: false
+    default: "false"
+  store-baseline:
+    description: Store current scores as baseline for future comparisons
+    required: false
+    default: "false"
+runs:
+  using: node20
+  main: index.js

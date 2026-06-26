@@ -1,0 +1,14 @@
+name: RepoReady
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+jobs:
+  repoready:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run RepoReady
+        run: npx repoready --markdown >> "$GITHUB_STEP_SUMMARY"

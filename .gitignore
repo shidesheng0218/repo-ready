@@ -1,0 +1,13 @@
+node_modules
+dist
+.next
+.next-build
+next-build
+coverage
+.env
+.env.local
+*.log
+.DS_Store
+next-build-verify
+next-build
+.repoready-baseline.json

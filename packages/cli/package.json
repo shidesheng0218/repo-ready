@@ -1,0 +1,12 @@
+{
+  "name": "repoready",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "repoready": "bin/repoready.js"
+  },
+  "dependencies": {
+    "@repoready/core": "workspace:*"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,32 @@
+{
+  "name": "repoready-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "RepoReady monorepo - AI coding agent readiness checker and fixer.",
+  "type": "module",
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "scan": "node packages/cli/bin/repoready.js",
+    "test": "node --test",
+    "action": "node packages/action/index.js",
+    "web:dev": "pnpm --filter @repoready/web dev",
+    "web:build": "pnpm --filter @repoready/web build"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "ai-agent",
+    "codex",
+    "claude-code",
+    "cursor",
+    "github",
+    "readiness",
+    "open-source"
+  ],
+  "license": "MIT"
+}
