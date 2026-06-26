@@ -2,7 +2,35 @@
 // Beyond keyword matching: evaluates structure, readability, completeness, target audience, and maintenance signals.
 
 export function analyzeReadmeQuality(content) {
-  if (!content || !content.trim()) return { score: 0, sections: [], issues: [], audience: "unknown", grade: "F" };
+  if (!content || !content.trim()) {
+    return {
+      score: 0,
+      sections: [],
+      missingSections: [
+        "title",
+        "description",
+        "install",
+        "usage",
+        "testing",
+        "contributing",
+        "license"
+      ],
+      issues: [
+        {
+          severity: "high",
+          category: "completeness",
+          en: "README is missing or empty.",
+          zh: "README 缺失或为空。"
+        }
+      ],
+      audience: "unknown",
+      grade: "F",
+      summary: {
+        en: "README is missing or empty. Add install, usage, testing, and contribution sections.",
+        zh: "README 缺失或为空。建议补充安装、使用、测试和贡献说明。"
+      }
+    };
+  }
 
   const sections = detectSections(content);
   const readability = analyzeReadability(content);

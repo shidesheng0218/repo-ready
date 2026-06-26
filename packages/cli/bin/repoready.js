@@ -177,6 +177,11 @@ ${files || "- No files"}
 function renderPrettyReport(report, lang) {
   const zh = lang === "zh";
   const t = (en, cn) => (zh ? cn : en);
+  const localized = (value, fallbackEn, fallbackZh = fallbackEn) => {
+    if (!value) return zh ? fallbackZh : fallbackEn;
+    if (typeof value === "string") return value;
+    return value[zh ? "zh" : "en"] || value.en || value.zh || (zh ? fallbackZh : fallbackEn);
+  };
   const lines = [];
   lines.push(`\nRepoReady ${t("Report", "报告")} · ${report.repository.name}`);
   lines.push("=".repeat(Math.min(72, lines[0].length)));
@@ -214,22 +219,22 @@ function renderPrettyReport(report, lang) {
     lines.push(t("Deep Analysis", "深度分析"));
     if (report.deepAnalysis.readmeQuality) {
       lines.push(`  README Quality: ${report.deepAnalysis.readmeQuality.grade} (${report.deepAnalysis.readmeQuality.score}/100)`);
-      lines.push(`  ${report.deepAnalysis.readmeQuality.summary[lang === "zh" ? "zh" : "en"]}`);
+      lines.push(`  ${localized(report.deepAnalysis.readmeQuality.summary, "README analysis completed, but no summary was available.", "README 分析已完成，但暂无摘要。")}`);
     }
     if (report.deepAnalysis.dependencyHealth) {
       lines.push(`  Dependencies: ${report.deepAnalysis.dependencyHealth.score}/100`);
-      lines.push(`  ${report.deepAnalysis.dependencyHealth.summary[lang === "zh" ? "zh" : "en"]}`);
+      lines.push(`  ${localized(report.deepAnalysis.dependencyHealth.summary, "Dependency analysis completed, but no summary was available.", "依赖分析已完成，但暂无摘要。")}`);
     }
     if (report.deepAnalysis.safetyBoundaries) {
       lines.push(`  Safety Boundaries: ${report.deepAnalysis.safetyBoundaries.score}/100`);
-      lines.push(`  ${report.deepAnalysis.safetyBoundaries.summary[lang === "zh" ? "zh" : "en"]}`);
+      lines.push(`  ${localized(report.deepAnalysis.safetyBoundaries.summary, "Safety analysis completed, but no summary was available.", "安全边界分析已完成，但暂无摘要。")}`);
       for (const boundary of report.deepAnalysis.safetyBoundaries.boundaries.slice(0, 3)) {
         lines.push(`  - ${zh ? boundary.zh : boundary.en}`);
       }
     }
     if (report.deepAnalysis.taskGraph) {
       lines.push(`  Task Graph: ${report.deepAnalysis.taskGraph.totalTasks} tasks`);
-      lines.push(`  ${report.deepAnalysis.taskGraph.summary[lang === "zh" ? "zh" : "en"]}`);
+      lines.push(`  ${localized(report.deepAnalysis.taskGraph.summary, "Task analysis completed, but no summary was available.", "任务分析已完成，但暂无摘要。")}`);
     }
   }
 

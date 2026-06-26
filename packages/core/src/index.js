@@ -878,20 +878,37 @@ function buildDeepAnalysisMarkdown(report, zh) {
   const da = report.deepAnalysis;
   if (!da) return "";
   const lines = [];
+  const localized = (value, fallbackEn, fallbackZh = fallbackEn) => {
+    if (!value) return zh ? fallbackZh : fallbackEn;
+    if (typeof value === "string") return value;
+    return value[zh ? "zh" : "en"] || value.en || value.zh || (zh ? fallbackZh : fallbackEn);
+  };
   if (da.readmeQuality) {
     lines.push(`### README Quality: ${da.readmeQuality.grade} (${da.readmeQuality.score}/100)`);
-    lines.push(`${da.readmeQuality.summary[zh ? "zh" : "en"]}`);
+    lines.push(localized(
+      da.readmeQuality.summary,
+      "README analysis completed, but no summary was available.",
+      "README 分析已完成，但暂无摘要。"
+    ));
     lines.push(`Confidence: ${(report.scores.confidence.agentReady * 100).toFixed(0)}%`);
     lines.push("");
   }
   if (da.dependencyHealth) {
     lines.push(`### Dependencies: ${da.dependencyHealth.score}/100`);
-    lines.push(`${da.dependencyHealth.summary[zh ? "zh" : "en"]}`);
+    lines.push(localized(
+      da.dependencyHealth.summary,
+      "Dependency analysis completed, but no summary was available.",
+      "依赖分析已完成，但暂无摘要。"
+    ));
     lines.push("");
   }
   if (da.safetyBoundaries) {
     lines.push(`### Safety Boundaries: ${da.safetyBoundaries.score}/100`);
-    lines.push(`${da.safetyBoundaries.summary[zh ? "zh" : "en"]}`);
+    lines.push(localized(
+      da.safetyBoundaries.summary,
+      "Safety analysis completed, but no summary was available.",
+      "安全边界分析已完成，但暂无摘要。"
+    ));
     for (const boundary of da.safetyBoundaries.boundaries.slice(0, 3)) {
       lines.push(`- ${zh ? boundary.zh : boundary.en}`);
     }
@@ -899,7 +916,11 @@ function buildDeepAnalysisMarkdown(report, zh) {
   }
   if (da.taskGraph) {
     lines.push(`### Task Graph: ${da.taskGraph.totalTasks} tasks`);
-    lines.push(`${da.taskGraph.summary[zh ? "zh" : "en"]}`);
+    lines.push(localized(
+      da.taskGraph.summary,
+      "Task analysis completed, but no summary was available.",
+      "任务分析已完成，但暂无摘要。"
+    ));
     for (const task of da.taskGraph.tasks.slice(0, 5)) {
       lines.push(`- [${task.priority}] ${zh ? task.zh : task.en}`);
     }
