@@ -10,6 +10,26 @@
 
 RepoReady is an AI agent readiness checker and fixer for GitHub repositories. It scans a local repository or public GitHub repository, reports issues that block Codex / Claude Code / Cursor collaboration, and generates safe fix patches for agent instructions, README sections, GitHub Actions, issue templates, PR templates, and badges.
 
+## Try it now
+
+Run RepoReady in any repository:
+
+```bash
+npx @shidesheng0218/repo-ready
+```
+
+Generate a Chinese report:
+
+```bash
+npx @shidesheng0218/repo-ready --lang zh
+```
+
+Preview safe, reviewable fixes:
+
+```bash
+npx @shidesheng0218/repo-ready fix --dry-run
+```
+
 ## Why RepoReady?
 
 AI coding agents are only as good as the repository context they receive. If a project lacks agent instructions, test commands, safe workflows, or contributor docs, agents have to guess.
