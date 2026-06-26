@@ -65,12 +65,15 @@ PR-ready Fixes
 - **Agent readiness scan** for Codex, Claude Code, Cursor, and similar coding agents
 - **Bilingual reports** in English and Chinese
 - **Four practical scores**: Agent Ready, Contributor Ready, Context Quality, Safety
+- **Code Quality Score** for test/lint/check/CI/test-file/lockfile signals
+- **Evidence and score breakdown** so reports explain why each score was given
 - **Weighted scoring with confidence** so the report shows not only the score, but also how reliable the detected signals are
 - **Before/after baseline comparison** through `.repoready-baseline.json` and `--save-baseline`
 - **Context noise detection** for generated folders, caches, large files, and missing ignore rules
 - **Dangerous script detection** for destructive commands, force pushes, database resets, and production deploys
 - **Repository health checks** for CI, license, `.env.example`, issue templates, PR templates, and README quality
 - **Fix generation** for `AGENTS.md`, README sections, GitHub Actions, templates, badges, `.gitignore`, and `.env.example`
+- **Targeted fixes** with `fix --only agents`, `fix --only readme,ci`, `fix --only templates`, or `fix --only config`
 - **GitHub PR workflow prototype** via `fix --pr` and GitHub CLI
 - **Share card endpoint** for report screenshots and social previews
 - **Agent templates** for Next.js, Vue, Python, Rust, Go, and monorepo workspaces

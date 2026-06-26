@@ -128,7 +128,7 @@ Guidance for Claude Code working in this repository.
 `;
 }
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.1.2";
 
 export async function scanRepository(options = {}) {
   const cwd = path.resolve(options.cwd || process.cwd());
@@ -145,7 +145,10 @@ export async function scanRepository(options = {}) {
   const contextNoise = detectContextNoise(files, gitignore?.content || "");
   const readmeSignals = analyzeReadme(readme?.content || "");
   const issues = buildIssues({ agentFiles, commands, dangerousScripts, contextNoise, readmeSignals, fileSet, repoHealth });
-  const scores = calculateScores({ agentFiles, commands, dangerousScripts, contextNoise, readmeSignals, fileSet, repoHealth });
+  const codeQuality = analyzeCodeQuality({ commands, fileSet, repoHealth, manifests });
+  const scoreBreakdown = buildScoreBreakdown({ agentFiles, commands, contextNoise, readmeSignals, repoHealth, dangerousScripts, codeQuality });
+  const scores = calculateScores({ agentFiles, commands, dangerousScripts, contextNoise, readmeSignals, fileSet, repoHealth, codeQuality });
+  const evidence = buildEvidence({ agentFiles, commands, readmeSignals, repoHealth, contextNoise, dangerousScripts, codeQuality });
   const recommendations = buildRecommendations(issues);
   const taskSuggestions = buildTaskSuggestions({ stack, commands, issues });
   const fixes = generateFixes({ stack, commands, readme, readmeSignals, agentFiles, fileSet, scores, repoHealth });
@@ -175,6 +178,9 @@ export async function scanRepository(options = {}) {
     contextNoise,
     dangerousScripts,
     scores,
+    evidence,
+    scoreBreakdown,
+    codeQuality,
     issues,
     recommendations,
     taskSuggestions,
@@ -262,6 +268,7 @@ async function readManifests(cwd, fileSet) {
   const manifests = {};
   if (fileSet.has("package.json")) manifests.packageJson = await readJson(path.join(cwd, "package.json"));
   if (fileSet.has("composer.json")) manifests.composerJson = await readJson(path.join(cwd, "composer.json"));
+  if (fileSet.has("tsconfig.json")) manifests.tsconfig = await readJson(path.join(cwd, "tsconfig.json"));
   if (fileSet.has("pyproject.toml")) manifests.pyproject = await readText(path.join(cwd, "pyproject.toml"));
   if (fileSet.has("cargo.toml")) manifests.cargo = await readText(path.join(cwd, "Cargo.toml"));
   if (fileSet.has("go.mod")) manifests.goMod = await readText(path.join(cwd, "go.mod"));
@@ -364,6 +371,8 @@ function detectCommands(manifests, stack, fileSet) {
     test: scripts.test || inferred.test || null,
     build: scripts.build || scripts["web:build"] || inferred.build || null,
     lint: scripts.lint || inferred.lint || null,
+    typecheck: scripts.typecheck || scripts["type-check"] || scripts.check || null,
+    format: scripts.format || scripts["format:check"] || null,
     scripts,
     inferred
   };
@@ -462,7 +471,86 @@ function buildIssues(input) {
   return issues;
 }
 
-function calculateScores({ agentFiles, commands, dangerousScripts, contextNoise, readmeSignals, fileSet, repoHealth }) {
+function analyzeCodeQuality({ commands, fileSet, repoHealth, manifests }) {
+  const deps = { ...(manifests.packageJson?.dependencies || {}), ...(manifests.packageJson?.devDependencies || {}) };
+  const hasTestFiles = [...fileSet].some((file) => /(^|\/)(__tests__|tests?|spec)\//i.test(file) || /\.(test|spec)\.[cm]?[jt]sx?$/i.test(file));
+  const hasStrictTs = Boolean(manifests.tsconfig?.compilerOptions?.strict);
+  const hasLintConfig = Boolean(commands.lint || deps.eslint || deps["@biomejs/biome"] || fileSet.has("eslint.config.js") || fileSet.has(".eslintrc") || fileSet.has("biome.json"));
+  const hasFormatConfig = Boolean(commands.format || deps.prettier || deps["@biomejs/biome"] || fileSet.has(".prettierrc") || fileSet.has("biome.json"));
+  const hasLockfile = fileSet.has("pnpm-lock.yaml") || fileSet.has("package-lock.json") || fileSet.has("yarn.lock") || fileSet.has("bun.lockb") || fileSet.has("cargo.lock") || fileSet.has("go.sum") || fileSet.has("poetry.lock");
+  const items = [
+    { id: "test-command", label: "Test command", labelZh: "测试命令", passed: Boolean(commands.test), points: 25, detail: commands.test || "missing" },
+    { id: "lint-command", label: "Lint command", labelZh: "Lint 命令", passed: hasLintConfig, points: 15, detail: hasLintConfig ? (commands.lint || "lint tooling detected") : "missing" },
+    { id: "typecheck-command", label: "Typecheck command", labelZh: "类型/检查命令", passed: Boolean(commands.typecheck) || hasStrictTs, points: 15, detail: commands.typecheck || (hasStrictTs ? "TypeScript strict mode" : "missing") },
+    { id: "format-command", label: "Format command", labelZh: "格式化命令", passed: hasFormatConfig, points: 10, detail: hasFormatConfig ? (commands.format || "format tooling detected") : "missing" },
+    { id: "ci", label: "CI workflow", labelZh: "CI 工作流", passed: repoHealth.hasCi, points: 15, detail: repoHealth.workflows?.[0] || "missing" },
+    { id: "test-files", label: "Test files", labelZh: "测试文件", passed: hasTestFiles, points: 10, detail: hasTestFiles ? "test files detected" : "missing" },
+    { id: "lockfile", label: "Dependency lockfile", labelZh: "依赖锁文件", passed: hasLockfile, points: 10, detail: hasLockfile ? "lockfile detected" : "missing" }
+  ];
+  return {
+    score: items.reduce((sum, item) => sum + (item.passed ? item.points : 0), 0),
+    items,
+    hasTestFiles,
+    hasStrictTs,
+    hasLintConfig,
+    hasFormatConfig,
+    hasLockfile
+  };
+}
+
+function buildEvidence({ agentFiles, commands, readmeSignals, repoHealth, contextNoise, dangerousScripts, codeQuality }) {
+  const pass = (id, title, titleZh, detail = "") => ({ id, status: "pass", title, titleZh, detail });
+  const fail = (id, title, titleZh, detail = "") => ({ id, status: "fail", title, titleZh, detail });
+  return [
+    agentFiles.any
+      ? pass("agent-instructions", "Agent instructions detected", "已检测到 Agent 协作说明", [agentFiles.agentsMd ? "AGENTS.md" : null, agentFiles.claudeMd ? "CLAUDE.md" : null, agentFiles.cursorRules ? ".cursor/rules" : null].filter(Boolean).join(", "))
+      : fail("agent-instructions", "Agent instructions missing", "缺少 Agent 协作说明"),
+    commands.test ? pass("test-command", "Test command detected", "已检测到测试命令", commands.test) : fail("test-command", "Test command missing", "缺少测试命令"),
+    commands.build ? pass("build-command", "Build command detected", "已检测到构建命令", commands.build) : fail("build-command", "Build command missing", "缺少构建命令"),
+    repoHealth.hasCi ? pass("ci-workflow", "GitHub Actions workflow detected", "已检测到 GitHub Actions 工作流", repoHealth.workflows?.[0] || "") : fail("ci-workflow", "GitHub Actions workflow missing", "缺少 GitHub Actions 工作流"),
+    readmeSignals.exists ? pass("readme", "README detected", "已检测到 README", [readmeSignals.hasInstall ? "install" : null, readmeSignals.hasUsage ? "usage" : null, readmeSignals.hasTest ? "test" : null, readmeSignals.hasContributing ? "contributing" : null].filter(Boolean).join(", ")) : fail("readme", "README missing", "缺少 README"),
+    dangerousScripts.length === 0 ? pass("safe-scripts", "No dangerous scripts detected", "未发现危险脚本") : fail("safe-scripts", "Dangerous scripts detected", "检测到危险脚本", dangerousScripts.map((s) => s.name).join(", ")),
+    contextNoise.generatedFilesTracked.length === 0 && contextNoise.largeFiles.length === 0 ? pass("clean-context", "Repository context is clean", "仓库上下文较干净") : fail("clean-context", "Context noise detected", "检测到上下文噪音", `${contextNoise.generatedFilesTracked.length} generated/cache, ${contextNoise.largeFiles.length} large files`),
+    codeQuality.score >= 70 ? pass("code-quality", "Code quality signals are strong", "代码质量信号较强", `${codeQuality.score}/100`) : fail("code-quality", "Code quality signals are weak", "代码质量信号较弱", `${codeQuality.score}/100`)
+  ];
+}
+
+function buildScoreBreakdown({ agentFiles, commands, contextNoise, readmeSignals, repoHealth, dangerousScripts, codeQuality }) {
+  const item = (id, label, labelZh, earned, max, detail = "") => ({ id, label, labelZh, earned, max, detail });
+  return {
+    agentReady: [
+      item("agent-instructions", "Agent instructions", "Agent 协作说明", agentFiles.agentsMd ? 28 : 0, 28, "AGENTS.md"),
+      item("claude-instructions", "Claude instructions", "Claude 说明", agentFiles.claudeMd ? 8 : 0, 8, "CLAUDE.md"),
+      item("cursor-rules", "Cursor rules", "Cursor 规则", agentFiles.cursorRules ? 8 : 0, 8, ".cursor/rules"),
+      item("test-command", "Test command", "测试命令", commands.test ? 20 : 0, 20, commands.test || ""),
+      item("build-command", "Build command", "构建命令", commands.build ? 15 : 0, 15, commands.build || ""),
+      item("usage-docs", "Usage docs", "使用说明", readmeSignals.hasUsage ? 8 : 0, 8),
+      item("ci", "CI workflow", "CI 工作流", repoHealth.hasCi ? 13 : 0, 13)
+    ],
+    contributorReady: [
+      item("readme", "README", "README", readmeSignals.exists ? 14 : 0, 14),
+      item("install-docs", "Install docs", "安装说明", readmeSignals.hasInstall ? 15 : 0, 15),
+      item("usage-docs", "Usage docs", "使用说明", readmeSignals.hasUsage ? 15 : 0, 15),
+      item("test-docs", "Testing docs", "测试说明", readmeSignals.hasTest ? 10 : 0, 10),
+      item("contributing", "Contributing docs", "贡献说明", readmeSignals.hasContributing ? 10 : 0, 10),
+      item("templates", "Issue/PR templates", "Issue/PR 模板", (repoHealth.hasIssueTemplate ? 8 : 0) + (repoHealth.hasPrTemplate ? 8 : 0), 16),
+      item("license", "License", "许可证", repoHealth.hasLicense ? 5 : 0, 5)
+    ],
+    contextQuality: [
+      item("generated-files", "Generated/cache files", "生成物/缓存文件", Math.max(0, 35 - Math.min(25, contextNoise.generatedFilesTracked.length * 3)), 35),
+      item("large-files", "Large files", "大文件", Math.max(0, 30 - Math.min(25, contextNoise.largeFiles.length * 8)), 30),
+      item("ignore-rules", "Ignore rules", "忽略规则", Math.max(0, 20 - Math.min(15, contextNoise.missingIgnoreRules.length * 2)), 20),
+      item("gitignore", ".gitignore", ".gitignore", repoHealth.hasGitignore ? 10 : 0, 10)
+    ],
+    safety: [
+      item("dangerous-scripts", "Dangerous scripts", "危险脚本", dangerousScripts.length ? Math.max(0, 60 - dangerousScripts.length * 25) : 60, 60),
+      item("env-files", "Committed env files", "已提交环境变量文件", repoHealth.envFiles.length ? 0 : 40, 40)
+    ],
+    codeQuality: codeQuality.items.map((q) => item(q.id, q.label, q.labelZh || q.label, q.passed ? q.points : 0, q.points, q.detail))
+  };
+}
+
+function calculateScores({ agentFiles, commands, dangerousScripts, contextNoise, readmeSignals, fileSet, repoHealth, codeQuality }) {
   const dimensions = {
     agentReady: {
       score: weightedScore([
@@ -547,11 +635,13 @@ function calculateScores({ agentFiles, commands, dangerousScripts, contextNoise,
     contributorReady: clamp(contributor),
     contextQuality: clamp(context),
     safety: clamp(safety),
+    codeQuality: clamp(codeQuality?.score ?? 0),
     confidence: {
       agentReady: dimensions.agentReady.confidence,
       contributorReady: dimensions.contributorReady.confidence,
       contextQuality: dimensions.contextQuality.confidence,
-      safety: dimensions.safety.confidence
+      safety: dimensions.safety.confidence,
+      codeQuality: calculateConfidence(codeQuality?.items?.map((item) => item.passed) || [])
     }
   };
   scores.overall = clamp((scores.agentReady + scores.contributorReady + scores.contextQuality + scores.safety) / 4);
@@ -634,6 +724,22 @@ export function generateFixes({ stack, commands, readme, readmeSignals, agentFil
   if (!fileSet.has(".github/issue_template/bug_report.md")) changes.push({ path: ".github/ISSUE_TEMPLATE/bug_report.md", action: "create", content: buildIssueTemplate() });
   if (!fileSet.has(".github/pull_request_template.md")) changes.push({ path: ".github/pull_request_template.md", action: "create", content: buildPrTemplate() });
   return { changes, count: changes.length };
+}
+
+export function filterFixes(fixes, groups = []) {
+  if (!groups || groups.length === 0 || groups.includes("all")) return fixes;
+  const normalized = new Set(groups.map((group) => String(group).trim().toLowerCase()).filter(Boolean));
+  const groupForPath = (filePath) => {
+    const lower = filePath.toLowerCase();
+    if (lower === "agents.md" || lower === "claude.md" || lower.startsWith(".cursor/")) return "agents";
+    if (lower === "readme.md" || lower.startsWith("docs/")) return "readme";
+    if (lower.startsWith(".github/workflows/")) return "ci";
+    if (lower.includes("issue_template") || lower.includes("pull_request_template")) return "templates";
+    if (lower === ".gitignore" || lower === ".env.example") return "config";
+    return "other";
+  };
+  const changes = fixes.changes.filter((change) => normalized.has(groupForPath(change.path)));
+  return { ...fixes, changes, count: changes.length };
 }
 
 function buildAgentsMd({ stack, commands }) {
@@ -834,7 +940,8 @@ function renderMarkdown(report, lang) {
     ["Agent Ready", report.scores.agentReady],
     ["Contributor Ready", report.scores.contributorReady],
     ["Context Quality", report.scores.contextQuality],
-    ["Safety", report.scores.safety]
+    ["Safety", report.scores.safety],
+    ["Code Quality", report.scores.codeQuality]
   ];
   return `# RepoReady ${t("Report", "报告")}
 
@@ -850,6 +957,15 @@ ${rows.map(([k, v]) => `| ${k} | ${v}/100 |`).join("\n")}
 | Contributor Ready | ${(report.scores.confidence.contributorReady * 100).toFixed(0)}% |
 | Context Quality | ${(report.scores.confidence.contextQuality * 100).toFixed(0)}% |
 | Safety | ${(report.scores.confidence.safety * 100).toFixed(0)}% |
+| Code Quality | ${((report.scores.confidence.codeQuality || 0) * 100).toFixed(0)}% |
+
+## ${t("Evidence", "证据链")}
+
+${(report.evidence || []).map((e) => `- ${e.status === "pass" ? "✓" : "!"} ${zh ? e.titleZh : e.title}${e.detail ? ` — ${e.detail}` : ""}`).join("\n") || `- ${t("No evidence available.", "暂无证据。")}`}
+
+## ${t("Score Breakdown", "评分拆解")}
+
+${renderScoreBreakdownMarkdown(report, zh)}
 
 ## ${t("Top issues", "主要问题")}
 
@@ -871,6 +987,27 @@ ${buildDeepAnalysisMarkdown(report, zh)}
 
 ${buildBaselineMarkdown(report, zh)}
 `;
+}
+
+function renderScoreBreakdownMarkdown(report, zh) {
+  if (!report.scoreBreakdown) return zh ? "暂无评分拆解。" : "No score breakdown available.";
+  const names = {
+    agentReady: zh ? "Agent Ready" : "Agent Ready",
+    contributorReady: zh ? "Contributor Ready" : "Contributor Ready",
+    contextQuality: zh ? "Context Quality" : "Context Quality",
+    safety: zh ? "Safety" : "Safety",
+    codeQuality: zh ? "Code Quality" : "Code Quality"
+  };
+  const sections = [];
+  for (const [key, items] of Object.entries(report.scoreBreakdown)) {
+    sections.push(`### ${names[key] || key}`);
+    for (const item of items.slice(0, 8)) {
+      const label = zh ? item.labelZh : item.label;
+      sections.push(`- ${label}: ${item.earned}/${item.max}${item.detail ? ` — ${item.detail}` : ""}`);
+    }
+    sections.push("");
+  }
+  return sections.join("\n");
 }
 
 function buildDeepAnalysisMarkdown(report, zh) {

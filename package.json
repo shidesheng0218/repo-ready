@@ -1,6 +1,6 @@
 {
   "name": "@shidesheng0218/repo-ready",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Make your repo ready for Codex, Claude Code, Cursor, and contributors.",
   "type": "module",
   "packageManager": "pnpm@9.0.0",
@@ -11,6 +11,8 @@
   "scripts": {
     "scan": "node packages/cli/bin/repoready.js",
     "test": "node --test",
+    "lint": "node --check packages/cli/bin/repoready.js && node --check packages/core/src/index.js && node --check packages/core/src/analyze-readme.js && node --check packages/core/src/analyze-dependencies.js && node --check packages/core/src/analyze-safety.js && node --check packages/core/src/analyze-tasks.js && node --check packages/core/src/ai-enhancer.js && node --check packages/core/src/ai-strategy.js",
+    "check": "npm run lint && npm test",
     "action": "node packages/action/index.js",
     "web:dev": "pnpm --filter @repoready/web dev",
     "web:build": "pnpm --filter @repoready/web build"

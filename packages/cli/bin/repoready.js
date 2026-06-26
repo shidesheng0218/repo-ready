@@ -5,6 +5,7 @@ import process from "node:process";
 import path from "node:path";
 import {
   buildUnifiedDiff,
+  filterFixes,
   generateFixesWithTemplate,
   listAgentTemplates,
   renderReport,
@@ -24,6 +25,7 @@ const saveBaseline = args.includes("--save-baseline");
 const write = args.includes("--write") || branch || createPr;
 const dryRun = args.includes("--dry-run") || !write;
 const baseBranch = readOption("--base") || "main";
+const onlyGroups = parseListOption("--only");
 const targetArg = readTargetArg(args);
 
 try {
@@ -52,6 +54,9 @@ try {
     if (templateKey) {
       const enhanced = generateFixesWithTemplate(report, templateKey);
       report.fixes = enhanced;
+    }
+    if (onlyGroups.length) {
+      report.fixes = filterFixes(report.fixes, onlyGroups);
     }
 
     if (createPr) preflightPullRequest();
@@ -89,8 +94,14 @@ function readOption(name) {
   return idx >= 0 ? args[idx + 1] : null;
 }
 
+function parseListOption(name) {
+  const value = readOption(name);
+  if (!value) return [];
+  return value.split(",").map((part) => part.trim()).filter(Boolean);
+}
+
 function readTargetArg(values) {
-  const optionsWithValues = new Set(["--lang", "--base", "--template"]);
+  const optionsWithValues = new Set(["--lang", "--base", "--template", "--only"]);
   for (let i = 0; i < values.length; i += 1) {
     const arg = values[i];
     if (arg === "fix" || arg === "init" || arg === "templates") continue;
@@ -191,6 +202,22 @@ function renderPrettyReport(report, lang) {
   lines.push(`Contributor Ready   ${bar(report.scores.contributorReady)} ${report.scores.contributorReady}/100`);
   lines.push(`Context Quality     ${bar(report.scores.contextQuality)} ${report.scores.contextQuality}/100`);
   lines.push(`Safety              ${bar(report.scores.safety)} ${report.scores.safety}/100`);
+  lines.push(`Code Quality        ${bar(report.scores.codeQuality || 0)} ${report.scores.codeQuality || 0}/100`);
+  lines.push("");
+  lines.push(t("Evidence", "证据链"));
+  for (const evidence of (report.evidence || []).slice(0, 8)) {
+    const mark = evidence.status === "pass" ? "✓" : "!";
+    const title = zh ? evidence.titleZh : evidence.title;
+    lines.push(`  ${mark} ${title}${evidence.detail ? ` — ${evidence.detail}` : ""}`);
+  }
+  lines.push("");
+  lines.push(t("Score Breakdown", "评分拆解"));
+  for (const item of (report.scoreBreakdown?.agentReady || []).slice(0, 4)) {
+    lines.push(`  - ${zh ? item.labelZh : item.label}: ${item.earned}/${item.max}${item.detail ? ` — ${item.detail}` : ""}`);
+  }
+  for (const item of (report.scoreBreakdown?.codeQuality || []).slice(0, 4)) {
+    lines.push(`  - ${zh ? item.labelZh : item.label}: ${item.earned}/${item.max}${item.detail ? ` — ${item.detail}` : ""}`);
+  }
   lines.push("");
   lines.push(t("Top Issues", "主要问题"));
   const top = report.issues.slice(0, 5);
@@ -212,7 +239,7 @@ function renderPrettyReport(report, lang) {
   for (const change of report.fixes.changes.slice(0, 8)) lines.push(`  + ${change.path}`);
   lines.push("");
   lines.push(t("Next command", "下一步命令"));
-  lines.push(`  node packages/cli/bin/repoready.js fix --dry-run`);
+  lines.push(`  npx @shidesheng0218/repo-ready fix --dry-run`);
 
   if (report.deepAnalysis) {
     lines.push("");
@@ -265,6 +292,8 @@ Usage:
   repoready fix --branch
   repoready fix --pr --base main
   repoready fix --template next.js
+  repoready fix --only agents
+  repoready fix --only readme,ci
   repoready templates
   repoready init
   repoready --ai
@@ -276,6 +305,7 @@ Safety:
   fix --branch creates/uses repoready/fixes.
   fix --pr requires git remote origin and GitHub CLI, then opens a PR without merging it.
   fix --template uses a specific agent template for generated files.
+  fix --only limits generated fixes to groups: agents, readme, ci, templates, config.
   repoready templates lists available templates.
   repoready init guides you through interactive repository setup.
   repoready --ai enables AI enhancement (requires OPENAI_API_KEY or ANTHROPIC_API_KEY).`);
