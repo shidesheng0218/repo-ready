@@ -183,8 +183,16 @@ node packages/cli/bin/repoready.js fix --branch
 When published to npm, the intended command is:
 
 ```bash
-npx repoready
-npx repoready fix --dry-run
+npx repo-ready
+npx repo-ready fix --dry-run
+```
+
+The package also exposes a `repoready` binary alias after installation:
+
+```bash
+npm install -g repo-ready
+repoready
+repo-ready --lang zh
 ```
 
 ## What it checks

@@ -1,10 +1,13 @@
 {
-  "name": "repoready-monorepo",
+  "name": "repo-ready",
   "version": "0.1.0",
-  "private": true,
-  "description": "RepoReady monorepo - AI coding agent readiness checker and fixer.",
+  "description": "Make your repo ready for Codex, Claude Code, Cursor, and contributors.",
   "type": "module",
   "packageManager": "pnpm@9.0.0",
+  "bin": {
+    "repo-ready": "packages/cli/bin/repoready.js",
+    "repoready": "packages/cli/bin/repoready.js"
+  },
   "scripts": {
     "scan": "node packages/cli/bin/repoready.js",
     "test": "node --test",
@@ -16,8 +19,25 @@
     "packages/*",
     "apps/*"
   ],
+  "files": [
+    "packages/core/src",
+    "packages/cli/bin",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shidesheng0218/repo-ready.git"
+  },
+  "homepage": "https://github.com/shidesheng0218/repo-ready#readme",
+  "bugs": {
+    "url": "https://github.com/shidesheng0218/repo-ready/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "keywords": [
     "ai-agent",
