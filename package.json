@@ -1,5 +1,5 @@
 {
-  "name": "repo-ready",
+  "name": "@shidesheng0218/repo-ready",
   "version": "0.1.0",
   "description": "Make your repo ready for Codex, Claude Code, Cursor, and contributors.",
   "type": "module",
