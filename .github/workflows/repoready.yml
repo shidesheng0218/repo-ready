@@ -11,4 +11,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run RepoReady
-        run: npx repoready --markdown >> "$GITHUB_STEP_SUMMARY"
+        run: node packages/cli/bin/repoready.js --markdown >> "$GITHUB_STEP_SUMMARY"
