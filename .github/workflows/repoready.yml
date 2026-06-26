@@ -1,4 +1,4 @@
-name: RepoReady
+﻿name: RepoReady
 
 on:
   pull_request:
@@ -7,8 +7,23 @@ on:
 
 jobs:
   repoready:
+    name: RepoReady Scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Run RepoReady
-        run: node packages/cli/bin/repoready.js --markdown >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          node packages/cli/bin/repoready.js --markdown >> "$GITHUB_STEP_SUMMARY"
