@@ -128,7 +128,7 @@ Guidance for Claude Code working in this repository.
 `;
 }
 
-export const VERSION = "0.1.2";
+export const VERSION = "0.1.3";
 
 export async function scanRepository(options = {}) {
   const cwd = path.resolve(options.cwd || process.cwd());
@@ -740,6 +740,187 @@ export function filterFixes(fixes, groups = []) {
   };
   const changes = fixes.changes.filter((change) => normalized.has(groupForPath(change.path)));
   return { ...fixes, changes, count: changes.length };
+}
+
+export function renderDoctorReport(report, options = {}) {
+  const zh = options.lang === "zh";
+  const t = (en, cn) => (zh ? cn : en);
+  const strengths = (report.evidence || []).filter((item) => item.status === "pass").slice(0, 6);
+  const risks = [
+    ...(report.evidence || []).filter((item) => item.status !== "pass"),
+    ...report.issues.filter((issue) => !issue.fixable).map((issue) => ({
+      title: issue.title,
+      titleZh: issue.titleZh,
+      detail: issue.severity
+    }))
+  ].slice(0, 6);
+  const next = report.recommendations[0] || {
+    en: "Keep the repository healthy by running RepoReady after major changes.",
+    zh: "在重大修改后继续运行 RepoReady，保持仓库健康。"
+  };
+  const diagnosis = report.scores.agentReady >= 80 && report.scores.contributorReady >= 80
+    ? t("This repository is highly ready for AI coding agents and contributors.", "该仓库已经高度适合 AI 编程代理和贡献者协作。")
+    : report.scores.agentReady >= 50
+      ? t("This repository is partially ready, but several signals still need improvement.", "该仓库已经部分适配，但仍有若干关键信号需要改进。")
+      : t("This repository is not ready for reliable AI agent collaboration yet.", "该仓库暂时还不适合可靠的 AI 编程代理协作。");
+  const line = (item) => `- ${zh ? item.titleZh : item.title}${item.detail ? ` — ${item.detail}` : ""}`;
+  return [
+    `# RepoReady ${t("Doctor Report", "诊断报告")}`,
+    "",
+    `## ${t("Diagnosis", "诊断结论")}`,
+    "",
+    diagnosis,
+    "",
+    `## ${t("Strengths", "优势")}`,
+    "",
+    strengths.map(line).join("\n") || `- ${t("No strong signals detected yet.", "暂未检测到明显优势信号。")}`,
+    "",
+    `## ${t("Risks", "风险")}`,
+    "",
+    risks.map(line).join("\n") || `- ${t("No major risks detected.", "暂未发现主要风险。")}`,
+    "",
+    `## ${t("Recommended next step", "推荐下一步")}`,
+    "",
+    `- ${zh ? next.zh : next.en}`,
+    ""
+  ].join("\n");
+}
+
+export function buildAgentTasks(report, options = {}) {
+  const zh = options.lang === "zh";
+  const tasks = [];
+  const add = ({ title, titleZh, risk = "low", files = [], prompt, promptZh, estimatedMinutes = 15 }) => {
+    tasks.push({
+      title: zh ? titleZh : title,
+      titleEn: title,
+      titleZh,
+      risk,
+      files,
+      estimatedMinutes,
+      prompt: zh ? promptZh : prompt,
+      promptEn: prompt,
+      promptZh
+    });
+  };
+
+  if (!report.agentFiles?.any) {
+    add({
+      title: "Create agent instructions",
+      titleZh: "创建 Agent 协作说明",
+      risk: "low",
+      files: ["AGENTS.md"],
+      prompt: "Please create an AGENTS.md file that explains the project structure, common commands, coding rules, and safety boundaries for AI coding agents.",
+      promptZh: "请创建 AGENTS.md，说明项目结构、常用命令、编码规范和 AI 编程代理需要遵守的安全边界。"
+    });
+  }
+  if (!report.commands?.test) {
+    add({
+      title: "Add or document a test command",
+      titleZh: "添加或说明测试命令",
+      risk: "medium",
+      files: ["package.json", "README.md"],
+      prompt: "Please identify the appropriate test command for this repository, add it to package scripts if applicable, and document it in README.",
+      promptZh: "请识别该仓库适合的测试命令，如适用则加入 package scripts，并在 README 中说明。"
+    });
+  }
+  if (!report.repoHealth?.hasCi) {
+    add({
+      title: "Add minimal CI workflow",
+      titleZh: "添加最小 CI 工作流",
+      risk: "medium",
+      files: [".github/workflows/repoready.yml"],
+      prompt: "Please add a minimal GitHub Actions workflow that checks out the repo, sets up Node.js when needed, and runs the test command.",
+      promptZh: "请添加一个最小 GitHub Actions 工作流，拉取代码，根据需要设置 Node.js，并运行测试命令。"
+    });
+  }
+  if (!report.readme?.hasInstall || !report.readme?.hasUsage || !report.readme?.hasTest) {
+    add({
+      title: "Improve README onboarding sections",
+      titleZh: "完善 README 上手说明",
+      risk: "low",
+      files: ["README.md"],
+      prompt: "Please improve README by adding clear Installation, Usage, Testing, and Contributing sections with concrete commands from this repository.",
+      promptZh: "请完善 README，补充清晰的安装、使用、测试和贡献说明，并使用本仓库的真实命令。"
+    });
+  }
+  if ((report.scores?.codeQuality || 0) < 80) {
+    add({
+      title: "Improve code quality signals",
+      titleZh: "增强代码质量信号",
+      risk: "low",
+      files: ["package.json", ".github/workflows"],
+      prompt: "Please add or improve lint/check/test scripts and make sure CI can run the safe validation commands.",
+      promptZh: "请添加或改进 lint/check/test 脚本，并确保 CI 可以运行安全的验证命令。"
+    });
+  }
+
+  if (!tasks.length) {
+    add({
+      title: "Review optional polish tasks",
+      titleZh: "审查可选优化任务",
+      risk: "low",
+      files: ["README.md", "AGENTS.md"],
+      prompt: "Please review this repository for small documentation and onboarding improvements that would help future AI coding agents and contributors.",
+      promptZh: "请审查该仓库，寻找有助于未来 AI 编程代理和贡献者的小型文档与上手体验改进。"
+    });
+  }
+  return tasks;
+}
+
+export function renderAgentTasks(report, options = {}) {
+  const zh = options.lang === "zh";
+  const t = (en, cn) => (zh ? cn : en);
+  const tasks = buildAgentTasks(report, options);
+  const lines = [`# RepoReady ${t("Agent Tasks", "Agent 任务")}`, ""];
+  tasks.forEach((task, index) => {
+    lines.push(`## ${index + 1}. ${task.title}`);
+    lines.push("");
+    lines.push(`- ${t("Risk", "风险")}: ${task.risk}`);
+    lines.push(`- ${t("Estimated", "预计")}: ${task.estimatedMinutes} min`);
+    lines.push(`- ${t("Files", "文件")}: ${task.files.join(", ") || "-"}`);
+    lines.push("");
+    lines.push(t("Suggested prompt:", "建议 Prompt："));
+    lines.push("");
+    lines.push(`> ${task.prompt}`);
+    lines.push("");
+  });
+  return lines.join("\n");
+}
+
+export function generateContextPack(report, options = {}) {
+  const zh = options.lang === "zh";
+  const t = (en, cn) => (zh ? cn : en);
+  const commands = report.commands || {};
+  const evidence = (report.evidence || []).map((item) => `- ${item.status === "pass" ? "PASS" : "REVIEW"}: ${zh ? item.titleZh : item.title}${item.detail ? ` — ${item.detail}` : ""}`).join("\n");
+  const tasks = buildAgentTasks(report, options);
+  const changes = [
+    {
+      path: ".repo-ready/context/project-map.md",
+      action: "create",
+      content: `# ${t("Project Map", "项目地图")}\n\n- ${t("Repository", "仓库")}: ${report.repository.name}\n- ${t("Languages", "语言")}: ${report.stack.languages.join(", ") || "Unknown"}\n- ${t("Frameworks", "框架")}: ${report.stack.frameworks.join(", ") || "Unknown"}\n- ${t("Package manager", "包管理器")}: ${report.stack.packageManager}\n\n## ${t("Detected signals", "检测信号")}\n\n${evidence || "- None"}\n`
+    },
+    {
+      path: ".repo-ready/context/commands.md",
+      action: "create",
+      content: `# ${t("Commands", "命令")}\n\n- Install: ${report.stack.packageManager === "pnpm" ? "pnpm install" : report.stack.packageManager === "yarn" ? "yarn install" : report.stack.packageManager === "npm" ? "npm install" : "document project-specific install command"}\n- Dev: ${commands.dev || "not detected"}\n- Test: ${commands.test || "not detected"}\n- Build: ${commands.build || "not detected"}\n- Lint: ${commands.lint || "not detected"}\n- Check: ${commands.typecheck || "not detected"}\n`
+    },
+    {
+      path: ".repo-ready/context/safety-boundaries.md",
+      action: "create",
+      content: `# ${t("Safety Boundaries", "安全边界")}\n\n- ${t("Do not run destructive, deployment, database reset, or force-push commands without explicit approval.", "未经明确授权，不要运行破坏性、部署、数据库重置或强制推送命令。")}\n- ${t("Prefer dry-run and diff review before writing files.", "写入文件前优先使用 dry-run 和 diff 审查。")}\n\n## ${t("Detected risky scripts", "检测到的风险脚本")}\n\n${report.dangerousScripts.map((script) => `- ${script.name}: ${script.command}`).join("\n") || "- None"}\n`
+    },
+    {
+      path: ".repo-ready/context/task-suggestions.md",
+      action: "create",
+      content: `# ${t("Agent Task Suggestions", "Agent 任务建议")}\n\n${tasks.map((task, index) => `## ${index + 1}. ${task.title}\n\n- Risk: ${task.risk}\n- Files: ${task.files.join(", ") || "-"}\n\n> ${task.prompt}\n`).join("\n")}`
+    },
+    {
+      path: ".repo-ready/context/ai-agent-brief.md",
+      action: "create",
+      content: `# ${t("AI Agent Brief", "AI Agent 简报")}\n\n${t("This repository has been summarized by RepoReady for AI coding agents.", "本文件由 RepoReady 为 AI 编程代理生成。")}\n\n## Scores\n\n- Overall: ${report.scores.overall}/100\n- Agent Ready: ${report.scores.agentReady}/100\n- Contributor Ready: ${report.scores.contributorReady}/100\n- Context Quality: ${report.scores.contextQuality}/100\n- Safety: ${report.scores.safety}/100\n- Code Quality: ${report.scores.codeQuality}/100\n\n## ${t("Recommended first task", "推荐第一个任务")}\n\n${tasks[0] ? tasks[0].prompt : "Review the repository and propose small safe improvements."}\n`
+    }
+  ];
+  return { changes, count: changes.length };
 }
 
 function buildAgentsMd({ stack, commands }) {

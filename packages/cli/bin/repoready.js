@@ -7,7 +7,10 @@ import {
   buildUnifiedDiff,
   filterFixes,
   generateFixesWithTemplate,
+  generateContextPack,
   listAgentTemplates,
+  renderAgentTasks,
+  renderDoctorReport,
   renderReport,
   scanGitHubRepository,
   scanRepository,
@@ -16,6 +19,9 @@ import {
 
 const args = process.argv.slice(2);
 const isFix = args[0] === "fix";
+const isDoctor = args[0] === "doctor";
+const isTasks = args[0] === "tasks";
+const isContext = args[0] === "context";
 const lang = readOption("--lang") || (args.includes("--zh") ? "zh" : "en");
 const json = args.includes("--json");
 const markdown = args.includes("--markdown");
@@ -43,6 +49,34 @@ try {
     const templates = listAgentTemplates();
     console.log("Available agent templates:");
     for (const template of templates) console.log(`  ${template.key}  →  ${template.name}`);
+    process.exit(0);
+  }
+
+  if (isDoctor || isTasks || isContext) {
+    const cwd = targetArg ? path.resolve(targetArg) : process.cwd();
+    const report = targetArg?.includes("github.com")
+      ? await scanGitHubRepository(targetArg, { githubToken: process.env.GITHUB_TOKEN })
+      : await scanRepository({ cwd });
+
+    if (isDoctor) {
+      console.log(renderDoctorReport(report, { lang }));
+      process.exit(0);
+    }
+
+    if (isTasks) {
+      console.log(renderAgentTasks(report, { lang }));
+      process.exit(0);
+    }
+
+    const contextPack = generateContextPack(report, { lang });
+    const diff = buildUnifiedDiff(contextPack.changes);
+    if (!write) {
+      console.log(diff || "No context files to generate.");
+      process.exit(0);
+    }
+    const written = await writeFixes(cwd, contextPack.changes);
+    console.log(`RepoReady wrote ${written.length} context file(s):`);
+    for (const file of written) console.log(`- ${file}`);
     process.exit(0);
   }
 
@@ -104,7 +138,7 @@ function readTargetArg(values) {
   const optionsWithValues = new Set(["--lang", "--base", "--template", "--only"]);
   for (let i = 0; i < values.length; i += 1) {
     const arg = values[i];
-    if (arg === "fix" || arg === "init" || arg === "templates") continue;
+    if (arg === "fix" || arg === "init" || arg === "templates" || arg === "doctor" || arg === "tasks" || arg === "context") continue;
     if (optionsWithValues.has(arg)) {
       i += 1;
       continue;
@@ -287,6 +321,10 @@ Usage:
   repoready --json
   repoready --markdown
   repoready --save-baseline
+  repoready doctor
+  repoready tasks
+  repoready context --dry-run
+  repoready context --write
   repoready fix --dry-run
   repoready fix --write
   repoready fix --branch
@@ -300,6 +338,9 @@ Usage:
 
 Safety:
   Scan never executes repository scripts.
+  doctor summarizes diagnosis, strengths, risks, and next step.
+  tasks prints copy-ready prompts for Codex, Claude Code, Cursor, and other agents.
+  context generates .repo-ready/context files for AI agent collaboration.
   fix --dry-run previews changes.
   fix --write writes generated files only.
   fix --branch creates/uses repoready/fixes.

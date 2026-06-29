@@ -30,6 +30,14 @@ Preview safe, reviewable fixes:
 npx @shidesheng0218/repo-ready fix --dry-run
 ```
 
+Generate AI-agent collaboration outputs:
+
+```bash
+npx @shidesheng0218/repo-ready doctor
+npx @shidesheng0218/repo-ready tasks
+npx @shidesheng0218/repo-ready context --dry-run
+```
+
 ## Why RepoReady?
 
 AI coding agents are only as good as the repository context they receive. If a project lacks agent instructions, test commands, safe workflows, or contributor docs, agents have to guess.
@@ -74,6 +82,9 @@ PR-ready Fixes
 - **Repository health checks** for CI, license, `.env.example`, issue templates, PR templates, and README quality
 - **Fix generation** for `AGENTS.md`, README sections, GitHub Actions, templates, badges, `.gitignore`, and `.env.example`
 - **Targeted fixes** with `fix --only agents`, `fix --only readme,ci`, `fix --only templates`, or `fix --only config`
+- **Doctor mode** with diagnosis, strengths, risks, and recommended next step
+- **Agent task planner** with copy-ready prompts for Codex, Claude Code, Cursor, and similar agents
+- **Context pack generator** for `.repo-ready/context/*` files that help agents understand the repository
 - **GitHub PR workflow prototype** via `fix --pr` and GitHub CLI
 - **Share card endpoint** for report screenshots and social previews
 - **Agent templates** for Next.js, Vue, Python, Rust, Go, and monorepo workspaces

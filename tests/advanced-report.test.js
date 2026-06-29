@@ -55,3 +55,34 @@ test("filterFixes keeps only requested fix groups", async () => {
   assert.equal(docsAndCi.changes.some((c) => c.path.includes("workflows")), true);
   assert.equal(docsAndCi.changes.some((c) => c.path === "AGENTS.md"), false);
 });
+
+test("doctor, tasks, and context pack produce agent-ready outputs", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "repoready-agent-kit-"));
+  await fs.writeFile(path.join(dir, "package.json"), JSON.stringify({
+    scripts: {
+      test: "node --test",
+      build: "tsc",
+      lint: "eslint ."
+    }
+  }), "utf8");
+  await fs.writeFile(path.join(dir, "README.md"), "# Demo\n\n## Installation\n\n## Usage\n\n## Testing\n\n## Contributing\n", "utf8");
+  await fs.writeFile(path.join(dir, "AGENTS.md"), "# Agent guide\n", "utf8");
+
+  const report = await scanRepository({ cwd: dir });
+  const { buildAgentTasks, generateContextPack, renderDoctorReport } = await import("../packages/core/src/index.js");
+
+  const doctor = renderDoctorReport(report, { lang: "en" });
+  assert.match(doctor, /Diagnosis/);
+  assert.match(doctor, /Strengths/);
+  assert.match(doctor, /Recommended next step/);
+
+  const tasks = buildAgentTasks(report, { lang: "en" });
+  assert.equal(tasks.length > 0, true);
+  assert.equal(tasks.every((task) => task.prompt && task.risk && task.files), true);
+  assert.match(tasks[0].prompt, /Please|Add|Review|Improve/);
+
+  const context = generateContextPack(report, { lang: "en" });
+  assert.equal(context.changes.some((c) => c.path === ".repo-ready/context/project-map.md"), true);
+  assert.equal(context.changes.some((c) => c.path === ".repo-ready/context/ai-agent-brief.md"), true);
+  assert.match(context.changes.find((c) => c.path.endsWith("commands.md")).content, /node --test/);
+});
