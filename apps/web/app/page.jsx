@@ -1,3 +1,4 @@
+
 import { redirect } from "next/navigation";
 
 export default function Home() {
@@ -18,16 +19,16 @@ export default function Home() {
         <section className="hero shell">
           <div className="hero-grid">
             <div>
-              <h1>Make every repo <span className="gradient-text">agent ready</span>.</h1>
+              <h1>Make every repository <span className="gradient-text">ready for agents</span>.</h1>
               <p>
-                RepoReady checks whether a GitHub repository is understandable, testable, safe, and actionable for Codex, Claude Code, Cursor, and human contributors.
+                RepoReady is the preflight layer for AI coding agents. It turns repository readiness into a public report, a fix plan, and a reviewable pull request.
               </p>
               <form action={scan} className="scan-form">
                 <input className="input" name="repo" placeholder="https://github.com/vercel/next.js" aria-label="GitHub repository URL" />
-                <button className="btn btn-primary" type="submit">Scan repo</button>
+                <button className="btn btn-primary" type="submit">Scan repository</button>
               </form>
               <p style={{ fontSize: 14, color: "var(--faint)" }}>
-                中文：让你的仓库更适合 AI 编程代理协作，也更容易被贡献者理解。
+                Built for Codex, Claude Code, Cursor, Copilot-style agents, and human contributors.
               </p>
             </div>
             <div className="panel hero-card">
@@ -35,7 +36,7 @@ export default function Home() {
                 <div className="terminal-bar"><span className="dot" /><span className="dot" /><span className="dot" /></div>
                 <pre>{`$ npx @shidesheng0218/repo-ready@latest
 
-RepoReady Report · your-repo
+RepoReady Report - your-repo
 Overall Score        91/100
 Agent Ready          94/100
 Contributor Ready    88/100
@@ -43,13 +44,15 @@ Context Quality      96/100
 Safety               100/100
 
 Evidence
-✓ AGENTS.md detected
-✓ Test command detected
-✓ GitHub Actions workflow detected
-✓ No dangerous scripts
++ AGENTS.md detected
++ Test command detected
++ GitHub Actions workflow detected
++ No dangerous scripts
 
-Next step
-→ Create Fix PR`}</pre>
+Strategy
+1. Keep agent context clean
+2. Add reviewable Fix PR
+3. Publish the report badge`}</pre>
               </div>
             </div>
           </div>
@@ -57,13 +60,13 @@ Next step
 
         <section className="section shell">
           <div className="section-head">
-            <h2>The preflight layer for AI coding agents.</h2>
-            <p className="section-lead">Before an agent changes code, RepoReady checks whether the repository has the instructions, commands, context, and safety boundaries it needs.</p>
+            <h2>From scanner to readiness infrastructure.</h2>
+            <p className="section-lead">RepoReady does not stop at scores. It explains the evidence, prioritizes strategy, generates safe fixes, and helps maintainers show progress publicly.</p>
           </div>
           <div className="grid-3">
-            <Feature title="Public report pages" text="Generate shareable reports at /r/owner/repo with evidence, scores, badges, and social cards." />
-            <Feature title="One-click Fix PR" text="Create reviewable PRs for AGENTS.md, README guidance, CI, templates, and safe repository hygiene." />
-            <Feature title="Agent Ready Index" text="Track which open-source projects are ready for AI agents and turn the data into viral research reports." />
+            <Feature title="Public reports" text="Share polished readiness reports at /r/owner/repo with evidence, strategy, badges, and social cards." />
+            <Feature title="Fix PR workflow" text="Turn missing AGENTS.md, README guidance, CI, templates, and safety notes into reviewable pull requests." />
+            <Feature title="Agent Ready Index" text="Collect readiness data across public repositories and turn it into benchmarks, articles, and launch stories." />
           </div>
         </section>
 
@@ -76,16 +79,16 @@ Next step
                 <li>Validation commands: install, test, build, lint/check</li>
                 <li>Contributor onboarding: README, usage, contribution path</li>
                 <li>Context quality: generated files, caches, large files</li>
-                <li>Safety boundaries: dangerous scripts, env files, deploy risks</li>
+                <li>Safety boundaries: destructive scripts, secrets, deploy risks</li>
               </ul>
             </div>
             <div className="panel" style={{ padding: 28 }}>
-              <h2 style={{ marginBottom: 18 }}>Why it spreads</h2>
+              <h2 style={{ marginBottom: 18 }}>What strategy adds</h2>
               <ul className="list">
-                <li>Developers can share a score and badge.</li>
-                <li>Maintainers get a concrete Fix PR, not just criticism.</li>
-                <li>Teams get policy checks before AI agents touch code.</li>
-                <li>The ecosystem gets an Agent Ready Index.</li>
+                <li>Impact-first priority instead of a flat checklist</li>
+                <li>Safe automation separated from review-required work</li>
+                <li>Growth advice for badges, reports, and launch copy</li>
+                <li>Policy posture for teams using AI coding agents</li>
               </ul>
             </div>
           </div>
@@ -93,8 +96,8 @@ Next step
 
         <section className="section shell">
           <div className="panel" style={{ padding: 34, textAlign: "center" }}>
-            <h2>Start with one public repository.</h2>
-            <p className="section-lead" style={{ margin: "12px auto 24px" }}>No AI API key required. No source upload from local scans. No repository scripts executed.</p>
+            <h2>Run one scan. Get a shareable artifact.</h2>
+            <p className="section-lead" style={{ margin: "12px auto 24px" }}>No AI API key required. No repository scripts executed. Public web scans only read the files needed for readiness analysis.</p>
             <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
               <a className="btn btn-primary" href="https://github.com/shidesheng0218/repo-ready">Star on GitHub</a>
               <a className="btn btn-secondary" href="/index">View Agent Ready Index</a>
@@ -125,5 +128,5 @@ function Nav() {
 }
 
 function Footer() {
-  return <footer className="footer"><div className="shell">RepoReady · AI Agent Readiness for GitHub repositories · MIT</div></footer>;
+  return <footer className="footer"><div className="shell">RepoReady - AI Agent Readiness for GitHub repositories - MIT</div></footer>;
 }

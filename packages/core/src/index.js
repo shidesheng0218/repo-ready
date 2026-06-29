@@ -161,6 +161,7 @@ export async function scanRepository(options = {}) {
     safetyBoundaries: analyzeSafetyBoundaries(fileSet, dangerousScripts, repoHealth),
     taskGraph: analyzeTaskGraph(stack, commands, fileSet, readmeSignals, agentFiles, issues)
   };
+  const strategy = buildRepositoryStrategy({ scores, issues, recommendations, fixes, evidence, deepAnalysis, commands, agentFiles, repoHealth, contextNoise, dangerousScripts });
 
   const aiEnhancements = await applyAiEnhancements(deepAnalysis, stack, commands, fixes, options, cwd);
   const baseline = await loadBaseline(cwd);
@@ -189,6 +190,8 @@ export async function scanRepository(options = {}) {
     templates
     ,
     deepAnalysis
+    ,
+    strategy
     ,
     aiEnhancements,
     scoreComparison,
@@ -656,6 +659,72 @@ function buildRecommendations(issues) {
     en: recommendationText(issue, "en"),
     zh: recommendationText(issue, "zh")
   }));
+}
+
+function buildRepositoryStrategy(input) {
+  const { scores, issues, fixes, evidence, deepAnalysis, commands, agentFiles, repoHealth, contextNoise, dangerousScripts } = input;
+  const fixPlan = buildFixPlan({ fixes, dangerousScripts, repoHealth, contextNoise });
+  const highIssues = issues.filter((issue) => issue.severity === "high").length;
+  const mediumIssues = issues.filter((issue) => issue.severity === "medium").length;
+  const posture = scores.overall >= 90 ? "scale" : scores.overall >= 75 ? "polish" : scores.overall >= 55 ? "stabilize" : "recover";
+  const summaryByPosture = {
+    scale: {
+      en: "This repository already has strong agent-readiness signals. The highest-leverage move is to make that readiness visible with badges, public reports, and a repeatable policy gate.",
+      zh: "该仓库已经具备较强的 AI agent 适配信号。最高杠杆动作是通过 badge、公开报告和策略门禁把这种成熟度展示出来。"
+    },
+    polish: {
+      en: "This repository is usable for AI agents, but a few missing signals still force agents or contributors to guess. Focus on quick fixes and documentation precision.",
+      zh: "该仓库已经可被 AI agent 使用，但仍有少量关键信号缺失。优先补齐快速修复项和更精确的文档。"
+    },
+    stabilize: {
+      en: "This repository needs a readiness pass before serious agent-driven work. Prioritize validation commands, agent instructions, and safety boundaries before growth tactics.",
+      zh: "该仓库在进行严肃 AI agent 协作前需要一次适配整理。先补验证命令、agent 说明和安全边界，再考虑传播。"
+    },
+    recover: {
+      en: "This repository is not yet safe or clear enough for autonomous agent work. Start with minimal instructions, tests, and manual review boundaries.",
+      zh: "该仓库暂时不适合自治式 agent 工作。应先建立最小说明、测试命令和人工审查边界。"
+    }
+  };
+
+  const priorityActions = [];
+  const addAction = (id, impact, effort, en, zh, command = "") => priorityActions.push({ id, impact, effort, en, zh, command });
+  if (!agentFiles.any) addAction("agent-instructions", "high", "low", "Add AGENTS.md so coding agents know project structure, commands, rules, and safety boundaries.", "添加 AGENTS.md，让 coding agent 明确项目结构、命令、规范和安全边界。", "npx @shidesheng0218/repo-ready@latest fix --only agents --dry-run");
+  if (!commands.test) addAction("test-command", "high", "medium", "Document or add a test command before asking agents to modify code.", "在让 agent 修改代码前，补充或明确测试命令。");
+  if (!repoHealth.hasCi) addAction("ci", "medium", "medium", "Add a minimal CI workflow so human and agent changes are verifiable in pull requests.", "添加最小 CI 工作流，让真人和 agent 的修改都能在 PR 中验证。");
+  if (dangerousScripts.length) addAction("safety-boundary", "high", "medium", "Review dangerous scripts and mark them as human-approval-only in AGENTS.md.", "审查危险脚本，并在 AGENTS.md 中标记为必须人工授权。");
+  if (contextNoise.generatedFilesTracked.length || contextNoise.largeFiles.length) addAction("context-cleanup", "medium", "medium", "Reduce generated files and large artifacts so agent context stays focused.", "减少生成物和大文件，让 agent 上下文更聚焦。");
+  if (!priorityActions.length) addAction("growth", "medium", "low", "Publish the RepoReady badge and public report to make readiness visible.", "发布 RepoReady badge 和公开报告，让仓库成熟度可见。");
+
+  const automationBoundary = [
+    { level: "safe", en: "Create or update agent instruction files, templates, .env.example, and badges.", zh: "创建或更新 agent 说明文件、模板、.env.example 和 badge。" },
+    { level: "review", en: "README, CI, package scripts, and workflow changes should be reviewed before merge.", zh: "README、CI、package scripts 和 workflow 修改应在合并前审查。" },
+    { level: "manual", en: "Database, auth, payment, deployment, secrets, and destructive scripts require explicit human approval.", zh: "数据库、认证、支付、部署、密钥和破坏性脚本必须人工明确授权。" }
+  ];
+
+  return {
+    posture,
+    summary: summaryByPosture[posture],
+    readinessGap: Math.max(0, 100 - scores.overall),
+    riskLevel: dangerousScripts.length || highIssues >= 3 ? "high" : highIssues || mediumIssues >= 3 ? "medium" : "low",
+    fixability: {
+      safe: fixPlan.safe.length,
+      review: fixPlan.review.length,
+      total: fixes.changes.length
+    },
+    priorityActions: priorityActions.slice(0, 5),
+    automationBoundary,
+    growthPlan: [
+      { en: "Add a RepoReady badge to README after the report is stable.", zh: "报告稳定后在 README 添加 RepoReady badge。" },
+      { en: "Share the public report page with a short before/after note.", zh: "分享公开报告页，并配一段前后变化说明。" },
+      { en: "Use Fix PR as the main call-to-action instead of only showing scores.", zh: "把 Fix PR 作为主行动点，而不只是展示分数。" }
+    ],
+    evidenceConfidence: Math.round(((evidence || []).filter((item) => item.status === "pass").length / Math.max((evidence || []).length, 1)) * 100),
+    deepSignals: {
+      readmeGrade: deepAnalysis.readmeQuality?.grade,
+      dependencyScore: deepAnalysis.dependencyHealth?.score,
+      taskCount: deepAnalysis.taskGraph?.totalTasks
+    }
+  };
 }
 
 function weightedScore(items) {
@@ -1307,6 +1376,14 @@ function renderText(report, lang) {
   lines.push(`- Context Quality: ${report.scores.contextQuality}/100 (confidence ${report.scores.confidence.contextQuality})`);
   lines.push(`- Safety: ${report.scores.safety}/100 (confidence ${report.scores.confidence.safety})`);
   lines.push("");
+  if (report.strategy) {
+    lines.push(t("Strategy", "策略"));
+    lines.push(`- ${report.strategy.summary[zh ? "zh" : "en"]}`);
+    for (const action of report.strategy.priorityActions.slice(0, 3)) {
+      lines.push(`- [${action.impact}/${action.effort}] ${zh ? action.zh : action.en}`);
+    }
+    lines.push("");
+  }
   lines.push(t("Top issues", "主要问题"));
   for (const issue of report.issues.slice(0, 8)) lines.push(`- [${issue.severity}] ${zh ? issue.titleZh : issue.title}`);
   if (!report.issues.length) lines.push(`- ${t("No major issues detected.", "未发现主要问题。")}`);
@@ -1350,6 +1427,8 @@ ${rows.map(([k, v]) => `| ${k} | ${v}/100 |`).join("\n")}
 | Context Quality | ${(report.scores.confidence.contextQuality * 100).toFixed(0)}% |
 | Safety | ${(report.scores.confidence.safety * 100).toFixed(0)}% |
 | Code Quality | ${((report.scores.confidence.codeQuality || 0) * 100).toFixed(0)}% |
+
+${renderStrategyMarkdown(report, zh)}
 
 ## ${t("Evidence", "证据链")}
 
@@ -1400,6 +1479,41 @@ function renderScoreBreakdownMarkdown(report, zh) {
     sections.push("");
   }
   return sections.join("\n");
+}
+
+
+function renderStrategyMarkdown(report, zh) {
+  const strategy = report.strategy;
+  if (!strategy) return "";
+  const t = (en, cn) => (zh ? cn : en);
+  const actions = strategy.priorityActions
+    .map((action) => `- **${action.impact}/${action.effort}**: ${zh ? action.zh : action.en}${action.command ? `\n  - \`${action.command}\`` : ""}`)
+    .join("\n");
+  const boundaries = strategy.automationBoundary
+    .map((item) => `- **${item.level}**: ${zh ? item.zh : item.en}`)
+    .join("\n");
+  const growth = strategy.growthPlan.map((item) => `- ${zh ? item.zh : item.en}`).join("\n");
+  return `## ${t("Strategy", "??")}
+
+${strategy.summary[zh ? "zh" : "en"]}
+
+- ${t("Posture", "??")}: **${strategy.posture}**
+- ${t("Risk level", "????")}: **${strategy.riskLevel}**
+- ${t("Readiness gap", "????")}: **${strategy.readinessGap}**
+- ${t("Evidence confidence", "?????")}: **${strategy.evidenceConfidence}%**
+
+### ${t("Priority actions", "????")}
+
+${actions || `- ${t("No priority actions.", "???????")}`}
+
+### ${t("Automation boundary", "?????")}
+
+${boundaries}
+
+### ${t("Growth plan", "????")}
+
+${growth}
+`;
 }
 
 function buildDeepAnalysisMarkdown(report, zh) {
