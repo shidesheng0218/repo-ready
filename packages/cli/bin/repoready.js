@@ -4,13 +4,20 @@ import { createInterface } from "node:readline";
 import process from "node:process";
 import path from "node:path";
 import {
+  buildDefaultPolicy,
+  buildFixPlan,
   buildUnifiedDiff,
+  checkPolicyCompliance,
   filterFixes,
   generateFixesWithTemplate,
   generateContextPack,
   listAgentTemplates,
+  renderAgentReadySpec,
   renderAgentTasks,
   renderDoctorReport,
+  renderFixPlan,
+  renderPolicyCompliance,
+  renderPolicyYaml,
   renderReport,
   scanGitHubRepository,
   scanRepository,
@@ -22,13 +29,17 @@ const isFix = args[0] === "fix";
 const isDoctor = args[0] === "doctor";
 const isTasks = args[0] === "tasks";
 const isContext = args[0] === "context";
+const isSpec = args[0] === "spec";
+const isPolicy = args[0] === "policy";
 const lang = readOption("--lang") || (args.includes("--zh") ? "zh" : "en");
 const json = args.includes("--json");
 const markdown = args.includes("--markdown");
 const branch = args.includes("--branch");
 const createPr = args.includes("--pr");
+const fixPlan = args.includes("--plan");
+const applySafe = args.includes("--apply-safe");
 const saveBaseline = args.includes("--save-baseline");
-const write = args.includes("--write") || branch || createPr;
+const write = args.includes("--write") || branch || createPr || applySafe;
 const dryRun = args.includes("--dry-run") || !write;
 const baseBranch = readOption("--base") || "main";
 const onlyGroups = parseListOption("--only");
@@ -50,6 +61,37 @@ try {
     console.log("Available agent templates:");
     for (const template of templates) console.log(`  ${template.key}  →  ${template.name}`);
     process.exit(0);
+  }
+
+  if (isSpec) {
+    console.log(renderAgentReadySpec({ lang }));
+    process.exit(0);
+  }
+
+  if (isPolicy) {
+    const subcommand = args[1] || "check";
+    const defaultPolicy = buildDefaultPolicy();
+    if (subcommand === "init") {
+      const content = renderPolicyYaml(defaultPolicy);
+      if (!write) {
+        console.log(content);
+        process.exit(0);
+      }
+      const fs = await import("node:fs/promises");
+      const policyPath = path.join(process.cwd(), ".repoready", "policy.yml");
+      await fs.mkdir(path.dirname(policyPath), { recursive: true });
+      await fs.writeFile(policyPath, content, "utf8");
+      console.log(`RepoReady wrote ${policyPath}`);
+      process.exit(0);
+    }
+    if (subcommand !== "check") {
+      throw new Error("policy supports only `init` and `check`");
+    }
+    const policy = await loadPolicy(process.cwd(), defaultPolicy);
+    const report = await scanRepository({ cwd: process.cwd() });
+    const compliance = checkPolicyCompliance(report, policy);
+    console.log(renderPolicyCompliance(compliance, { lang }));
+    process.exit(compliance.passed ? 0 : 1);
   }
 
   if (isDoctor || isTasks || isContext) {
@@ -91,6 +133,15 @@ try {
     }
     if (onlyGroups.length) {
       report.fixes = filterFixes(report.fixes, onlyGroups);
+    }
+
+    const planned = buildFixPlan(report);
+    if (fixPlan) {
+      console.log(renderFixPlan(planned, { lang }));
+      process.exit(0);
+    }
+    if (applySafe) {
+      report.fixes = { changes: planned.safe, count: planned.safe.length };
     }
 
     if (createPr) preflightPullRequest();
@@ -138,7 +189,7 @@ function readTargetArg(values) {
   const optionsWithValues = new Set(["--lang", "--base", "--template", "--only"]);
   for (let i = 0; i < values.length; i += 1) {
     const arg = values[i];
-    if (arg === "fix" || arg === "init" || arg === "templates" || arg === "doctor" || arg === "tasks" || arg === "context") continue;
+    if (arg === "fix" || arg === "init" || arg === "templates" || arg === "doctor" || arg === "tasks" || arg === "context" || arg === "spec" || arg === "policy" || arg === "check") continue;
     if (optionsWithValues.has(arg)) {
       i += 1;
       continue;
@@ -146,6 +197,56 @@ function readTargetArg(values) {
     if (!arg.startsWith("-")) return arg;
   }
   return null;
+}
+
+async function loadPolicy(cwd, fallback) {
+  const fs = await import("node:fs/promises");
+  const policyPath = path.join(cwd, ".repoready", "policy.yml");
+  try {
+    const text = await fs.readFile(policyPath, "utf8");
+    return parsePolicyYaml(text, fallback);
+  } catch {
+    return fallback;
+  }
+}
+
+function parsePolicyYaml(text, fallback) {
+  const policy = JSON.parse(JSON.stringify(fallback));
+  let section = "";
+  let listKey = "";
+
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.replace(/\s+#.*$/, "");
+    if (!line.trim()) continue;
+
+    const sectionMatch = line.match(/^([a-zA-Z_][\w-]*):\s*$/);
+    if (sectionMatch) {
+      section = sectionMatch[1];
+      listKey = "";
+      if (!policy[section]) policy[section] = {};
+      continue;
+    }
+
+    const keyMatch = line.match(/^  ([a-zA-Z_][\w-]*):\s*(true|false)?\s*$/);
+    if (keyMatch && section) {
+      const key = keyMatch[1];
+      if (keyMatch[2]) {
+        policy[section][key] = keyMatch[2] === "true";
+        listKey = "";
+      } else {
+        policy[section][key] = [];
+        listKey = key;
+      }
+      continue;
+    }
+
+    const itemMatch = line.match(/^    -\s+(.+?)\s*$/);
+    if (itemMatch && section && listKey) {
+      policy[section][listKey].push(itemMatch[1]);
+    }
+  }
+
+  return policy;
 }
 
 function preflightPullRequest() {
@@ -321,11 +422,17 @@ Usage:
   repoready --json
   repoready --markdown
   repoready --save-baseline
+  repoready spec
+  repoready policy init
+  repoready policy init --write
+  repoready policy check
   repoready doctor
   repoready tasks
   repoready context --dry-run
   repoready context --write
   repoready fix --dry-run
+  repoready fix --plan
+  repoready fix --apply-safe
   repoready fix --write
   repoready fix --branch
   repoready fix --pr --base main
@@ -338,10 +445,15 @@ Usage:
 
 Safety:
   Scan never executes repository scripts.
+  spec prints the Agent Ready Repository Standard.
+  policy init prints or writes a default .repoready/policy.yml.
+  policy check evaluates the repository against .repoready/policy.yml when present.
   doctor summarizes diagnosis, strengths, risks, and next step.
   tasks prints copy-ready prompts for Codex, Claude Code, Cursor, and other agents.
   context generates .repo-ready/context files for AI agent collaboration.
   fix --dry-run previews changes.
+  fix --plan classifies fixes into safe, review, and manual buckets.
+  fix --apply-safe writes only safe automatic fixes.
   fix --write writes generated files only.
   fix --branch creates/uses repoready/fixes.
   fix --pr requires git remote origin and GitHub CLI, then opens a PR without merging it.

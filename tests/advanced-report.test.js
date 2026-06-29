@@ -86,3 +86,80 @@ test("doctor, tasks, and context pack produce agent-ready outputs", async () => 
   assert.equal(context.changes.some((c) => c.path === ".repo-ready/context/ai-agent-brief.md"), true);
   assert.match(context.changes.find((c) => c.path.endsWith("commands.md")).content, /node --test/);
 });
+
+test("spec, fix plan, and policy compliance support standardization workflows", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "repoready-standard-"));
+  await fs.writeFile(path.join(dir, "package.json"), JSON.stringify({
+    scripts: {
+      test: "node --test",
+      build: "tsc"
+    }
+  }), "utf8");
+  await fs.writeFile(path.join(dir, "README.md"), "# Demo\n\n## Usage\n", "utf8");
+  const report = await scanRepository({ cwd: dir });
+  const {
+    buildFixPlan,
+    buildPolicyTemplate,
+    evaluatePolicy,
+    renderAgentReadySpec,
+    renderFixPlan,
+    renderPolicyReport
+  } = await import("../packages/core/src/index.js");
+
+  const spec = renderAgentReadySpec({ lang: "en" });
+  assert.match(spec, /Agent Ready Repository Standard/);
+  assert.match(spec, /AGENTS.md/);
+  assert.match(spec, /Safety boundaries/);
+
+  const fixPlan = buildFixPlan(report);
+  assert.equal(fixPlan.safe.some((item) => item.path === "AGENTS.md"), true);
+  assert.equal(fixPlan.review.some((item) => item.path === "README.md"), true);
+  assert.match(renderFixPlan(fixPlan, { lang: "en" }), /Safe automatic fixes/);
+
+  const policyText = buildPolicyTemplate({ lang: "en" });
+  assert.match(policyText, /require_test_command/);
+  assert.match(policyText, /block_dangerous_scripts/);
+
+  const policy = evaluatePolicy(report);
+  assert.equal(typeof policy.score, "number");
+  assert.equal(policy.checks.some((check) => check.id === "agent-instructions"), true);
+  assert.match(renderPolicyReport(policy, { lang: "en" }), /Policy Compliance/);
+});
+
+test("spec, policy, and fix plan expose strategic readiness controls", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "repoready-policy-"));
+  await fs.writeFile(path.join(dir, "package.json"), JSON.stringify({
+    scripts: {
+      test: "node --test",
+      clean: "rm -rf /"
+    }
+  }), "utf8");
+  const report = await scanRepository({ cwd: dir });
+  const {
+    buildDefaultPolicy,
+    buildFixPlan,
+    checkPolicyCompliance,
+    renderAgentReadySpec,
+    renderFixPlan,
+    renderPolicyCompliance
+  } = await import("../packages/core/src/index.js");
+
+  const spec = renderAgentReadySpec({ lang: "en" });
+  assert.match(spec, /Agent Ready Repository Standard/);
+  assert.match(spec, /AGENTS.md/);
+  assert.match(spec, /Safety boundaries/);
+
+  const policy = buildDefaultPolicy();
+  assert.equal(policy.agent.require_test_command, true);
+  assert.equal(policy.safety.block_dangerous_scripts, true);
+
+  const compliance = checkPolicyCompliance(report, policy);
+  assert.equal(typeof compliance.score, "number");
+  assert.equal(compliance.violations.some((v) => v.id === "dangerous-scripts"), true);
+  assert.match(renderPolicyCompliance(compliance, { lang: "en" }), /Policy Compliance/);
+
+  const fixPlan = buildFixPlan(report);
+  assert.equal(fixPlan.safe.some((c) => c.path === "AGENTS.md"), true);
+  assert.equal(fixPlan.manual.some((item) => item.id === "dangerous-scripts"), true);
+  assert.match(renderFixPlan(fixPlan, { lang: "en" }), /Safe automatic fixes/);
+});

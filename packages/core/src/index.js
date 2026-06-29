@@ -128,7 +128,7 @@ Guidance for Claude Code working in this repository.
 `;
 }
 
-export const VERSION = "0.1.3";
+export const VERSION = "0.2.0";
 
 export async function scanRepository(options = {}) {
   const cwd = path.resolve(options.cwd || process.cwd());
@@ -921,6 +921,217 @@ export function generateContextPack(report, options = {}) {
     }
   ];
   return { changes, count: changes.length };
+}
+
+export function renderAgentReadySpec(options = {}) {
+  const zh = options.lang === "zh";
+  if (zh) {
+    return `# Agent Ready Repository Standard
+
+RepoReady 定义的 AI 编程代理仓库适配标准。
+
+## 1. 必备协作说明
+- 必须有 AGENTS.md，说明项目结构、命令、编码规范和安全边界。
+- 推荐补充 CLAUDE.md、.cursor/rules 等 agent-specific 文件。
+
+## 2. 必备命令
+- Install：安装依赖。
+- Dev：本地开发。
+- Test：验证修改。
+- Build：验证生产构建。
+- Lint/Check：基础质量检查。
+
+## 3. README 上手路径
+- 项目简介。
+- 安装方式。
+- 使用方式。
+- 测试方式。
+- 贡献方式。
+
+## 4. Safety boundaries
+- 不允许未授权运行破坏性命令。
+- 不允许未授权生产部署。
+- 数据库、认证、支付、密钥相关修改必须人工审查。
+
+## 5. Context quality
+- 忽略 node_modules、dist、build、coverage、缓存目录。
+- 避免提交大文件和生成物。
+- 提供 .env.example，避免提交真实 .env。
+
+## 6. Agent task readiness
+- 任务应小而明确。
+- 文件范围应清楚。
+- 必须有验证命令。
+- 高风险修改必须人工确认。
+`;
+  }
+  return `# Agent Ready Repository Standard
+
+RepoReady's standard for repositories that are understandable, testable, safe, and actionable for AI coding agents.
+
+## 1. Agent instructions
+- A repository should include AGENTS.md with project structure, commands, coding rules, and safety boundaries.
+- Agent-specific files such as CLAUDE.md and .cursor/rules are recommended.
+
+## 2. Required commands
+- Install: install dependencies.
+- Dev: run local development.
+- Test: validate code changes.
+- Build: validate production readiness.
+- Lint/Check: run basic quality checks.
+
+## 3. README onboarding
+- Project description.
+- Installation.
+- Usage.
+- Testing.
+- Contribution guidance.
+
+## 4. Safety boundaries
+- Do not run destructive commands without approval.
+- Do not deploy to production without approval.
+- Database, auth, payment, and secret-related changes require human review.
+
+## 5. Context quality
+- Ignore node_modules, dist, build, coverage, and cache directories.
+- Avoid committed generated files and large artifacts.
+- Provide .env.example instead of committing real .env files.
+
+## 6. Agent task readiness
+- Tasks should be small and explicit.
+- File scope should be clear.
+- Validation commands should be available.
+- High-risk changes require human confirmation.
+`;
+}
+
+export function buildDefaultPolicy() {
+  return {
+    agent: {
+      require_agent_instructions: true,
+      require_test_command: true,
+      require_ci: true
+    },
+    safety: {
+      block_dangerous_scripts: true,
+      flag_large_files: true,
+      require_human_review_for: ["database", "deployment", "auth", "payment", "secrets"]
+    },
+    fix: {
+      allow_auto_create: ["AGENTS.md", "README sections", "GitHub Actions", "issue templates", "PR templates"],
+      require_review_for: ["package scripts", "CI changes", "deployment files"]
+    }
+  };
+}
+
+export function renderPolicyYaml(policy = buildDefaultPolicy()) {
+  const list = (items, indent = "    ") => items.map((item) => `${indent}- ${item}`).join("\n");
+  return `agent:
+  require_agent_instructions: ${Boolean(policy.agent?.require_agent_instructions)}
+  require_test_command: ${Boolean(policy.agent?.require_test_command)}
+  require_ci: ${Boolean(policy.agent?.require_ci)}
+
+safety:
+  block_dangerous_scripts: ${Boolean(policy.safety?.block_dangerous_scripts)}
+  flag_large_files: ${Boolean(policy.safety?.flag_large_files)}
+  require_human_review_for:
+${list(policy.safety?.require_human_review_for || [])}
+
+fix:
+  allow_auto_create:
+${list(policy.fix?.allow_auto_create || [])}
+  require_review_for:
+${list(policy.fix?.require_review_for || [])}
+`;
+}
+
+export function buildPolicyTemplate() {
+  return renderPolicyYaml(buildDefaultPolicy());
+}
+
+export function checkPolicyCompliance(report, policy = buildDefaultPolicy()) {
+  const checks = [];
+  const add = (id, passed, severity, en, zh, detail = "") => checks.push({ id, passed, severity, en, zh, detail });
+  add("agent-instructions", !policy.agent?.require_agent_instructions || report.agentFiles?.any, "high", "Agent instructions are required.", "需要 Agent 协作说明。");
+  add("test-command", !policy.agent?.require_test_command || Boolean(report.commands?.test), "high", "A test command is required.", "需要测试命令。");
+  add("ci", !policy.agent?.require_ci || report.repoHealth?.hasCi, "medium", "A CI workflow is required.", "需要 CI 工作流。");
+  add("dangerous-scripts", !policy.safety?.block_dangerous_scripts || report.dangerousScripts.length === 0, "critical", "Dangerous scripts are blocked by policy.", "策略禁止危险脚本。", report.dangerousScripts.map((s) => s.name).join(", "));
+  add("large-files", !policy.safety?.flag_large_files || report.contextNoise.largeFiles.length === 0, "medium", "Large files require review.", "大文件需要审查。", `${report.contextNoise.largeFiles.length} large files`);
+  const violations = checks.filter((check) => !check.passed);
+  const weights = { critical: 35, high: 25, medium: 15, low: 5 };
+  const penalty = violations.reduce((sum, item) => sum + (weights[item.severity] || 10), 0);
+  return {
+    score: Math.max(0, Math.round(100 - penalty)),
+    checks,
+    violations,
+    passed: violations.length === 0
+  };
+}
+
+export function evaluatePolicy(report, policy = buildDefaultPolicy()) {
+  return checkPolicyCompliance(report, policy);
+}
+
+export function renderPolicyCompliance(compliance, options = {}) {
+  const zh = options.lang === "zh";
+  const t = (en, cn) => (zh ? cn : en);
+  const lines = [`# RepoReady ${t("Policy Compliance", "策略合规")}`, "", `${t("Score", "分数")}: ${compliance.score}/100`, ""];
+  lines.push(`## ${t("Violations", "违规项")}`);
+  if (!compliance.violations.length) lines.push(`- ${t("No policy violations detected.", "未发现策略违规。")}`);
+  for (const item of compliance.violations) {
+    lines.push(`- [${item.severity}] ${zh ? item.zh : item.en}${item.detail ? ` — ${item.detail}` : ""}`);
+  }
+  lines.push("");
+  lines.push(`## ${t("Checks", "检查项")}`);
+  for (const item of compliance.checks) {
+    lines.push(`- ${item.passed ? "PASS" : "FAIL"} ${item.id}`);
+  }
+  return lines.join("\n");
+}
+
+export function renderPolicyReport(compliance, options = {}) {
+  return renderPolicyCompliance(compliance, options);
+}
+
+export function buildFixPlan(report) {
+  const isSafePath = (filePath) => {
+    const lower = filePath.toLowerCase();
+    return lower === "agents.md" || lower === ".env.example" || lower.includes("issue_template") || lower.includes("pull_request_template");
+  };
+  const requiresReviewPath = (filePath) => {
+    const lower = filePath.toLowerCase();
+    return lower === "readme.md" || lower === ".gitignore" || lower.startsWith(".github/workflows/");
+  };
+  const safe = report.fixes.changes.filter((change) => isSafePath(change.path));
+  const review = report.fixes.changes.filter((change) => requiresReviewPath(change.path));
+  const manual = [];
+  if (report.dangerousScripts.length) {
+    manual.push({ id: "dangerous-scripts", severity: "high", en: "Review dangerous scripts manually.", zh: "人工审查危险脚本。" });
+  }
+  if (report.repoHealth.envFiles.length) {
+    manual.push({ id: "committed-env-file", severity: "critical", en: "Remove committed env files manually and rotate exposed secrets.", zh: "人工移除已提交的环境变量文件，并轮换泄露密钥。" });
+  }
+  return {
+    safe,
+    review,
+    manual,
+    counts: { safe: safe.length, review: review.length, manual: manual.length }
+  };
+}
+
+export function renderFixPlan(plan, options = {}) {
+  const zh = options.lang === "zh";
+  const t = (en, cn) => (zh ? cn : en);
+  const lines = [`# RepoReady ${t("Fix Plan", "修复计划")}`, ""];
+  lines.push(`## ${t("Safe automatic fixes", "安全自动修复")}`);
+  lines.push(...(plan.safe.length ? plan.safe.map((c) => `- ${c.path}`) : [`- ${t("None", "无")}`]));
+  lines.push("");
+  lines.push(`## ${t("Needs review", "需要审查")}`);
+  lines.push(...(plan.review.length ? plan.review.map((c) => `- ${c.path}`) : [`- ${t("None", "无")}`]));
+  lines.push("");
+  lines.push(`## ${t("Manual only", "仅人工处理")}`);
+  lines.push(...(plan.manual.length ? plan.manual.map((item) => `- [${item.severity}] ${zh ? item.zh : item.en}`) : [`- ${t("None", "无")}`]));
+  return lines.join("\n");
 }
 
 function buildAgentsMd({ stack, commands }) {
