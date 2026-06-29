@@ -128,7 +128,7 @@ Guidance for Claude Code working in this repository.
 `;
 }
 
-export const VERSION = "0.3.0";
+export const VERSION = "0.3.1";
 
 export async function scanRepository(options = {}) {
   const cwd = path.resolve(options.cwd || process.cwd());
