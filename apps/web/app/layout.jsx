@@ -1,6 +1,14 @@
+import "./globals.css";
+
 export const metadata = {
-  title: "RepoReady – AI Agent Readiness for GitHub Repositories",
-  description: "Scan your repository for AI coding agent readiness. Get scores, fix suggestions, and shareable reports for Codex, Claude Code, and Cursor."
+  title: "RepoReady — AI Agent Readiness for GitHub Repositories",
+  description: "Scan your repository for Codex, Claude Code, Cursor, and contributor readiness. Generate reports, badges, fix plans, and Fix PRs.",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"),
+  openGraph: {
+    title: "RepoReady — AI Agent Readiness",
+    description: "Make your repo ready for humans, AI agents, and growth.",
+    type: "website"
+  }
 };
 
 export default function RootLayout({ children }) {
@@ -11,18 +19,7 @@ export default function RootLayout({ children }) {
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
       </head>
-      <body style={{ fontFamily: "'Inter', system-ui, sans-serif", margin: 0, background: "#020617", color: "#e2e8f0", WebkitFontSmoothing: "antialiased" }}>
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 0,
-            background: "radial-gradient(ellipse 80% 50% at 50% -20%, rgba(56,189,248,0.12), transparent 50%), radial-gradient(ellipse 60% 40% at 100% 100%, rgba(37,99,235,0.10), transparent 50%)",
-            pointerEvents: "none"
-          }}
-        />
-        <div style={{ position: "relative", zIndex: 1 }}>{children}</div>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

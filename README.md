@@ -272,10 +272,11 @@ apps/web         web report page skeleton
 - [x] Fix dry-run/write/branch/PR prototype
 - [x] GitHub Action wrapper
 - [x] Minimal Web report skeleton
-- [ ] Persistent public report pages
-- [ ] GitHub App OAuth PR creation
+- [x] Public report pages for `/r/owner/repo`
+- [x] Badge and share-card routes
+- [x] GitHub App Fix PR MVP with patch-preview fallback
+- [x] Agent Ready Index MVP
 - [ ] Organization dashboard
-- [ ] Agent Ready Index / leaderboard report
 - [ ] More language-specific rules and templates
 
 ## Why this matters

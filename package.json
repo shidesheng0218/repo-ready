@@ -1,6 +1,6 @@
 {
   "name": "@shidesheng0218/repo-ready",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Make your repo ready for Codex, Claude Code, Cursor, and contributors.",
   "type": "module",
   "packageManager": "pnpm@9.0.0",
@@ -15,7 +15,9 @@
     "check": "npm run lint && npm test",
     "action": "node packages/action/index.js",
     "web:dev": "pnpm --filter @repoready/web dev",
-    "web:build": "pnpm --filter @repoready/web build"
+    "web:build": "pnpm --filter @repoready/web build",
+    "index:scan": "node scripts/scan-index.js",
+    "index:article": "node scripts/generate-index-article.js"
   },
   "workspaces": [
     "packages/*",
@@ -25,6 +27,7 @@
     "packages/core/src",
     "packages/cli/bin",
     "docs",
+    "scripts",
     "README.md",
     "LICENSE"
   ],
@@ -53,3 +56,4 @@
   ],
   "license": "MIT"
 }
+

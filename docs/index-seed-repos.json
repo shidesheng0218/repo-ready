@@ -1,0 +1,12 @@
+[
+  "vercel/next.js",
+  "facebook/react",
+  "microsoft/vscode",
+  "nodejs/node",
+  "denoland/deno",
+  "rust-lang/rust",
+  "golang/go",
+  "python/cpython",
+  "vitejs/vite",
+  "supabase/supabase"
+]
