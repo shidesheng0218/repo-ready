@@ -12,3 +12,4 @@ next-build-verify
 next-build
 .repoready-baseline.json
 .npm-cache
+apps/web/data
