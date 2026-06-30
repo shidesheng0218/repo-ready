@@ -100,3 +100,31 @@ button, input { font: inherit; }
   .btn-primary, .input { width: 100%; }
   .section-head { display: block; }
 }
+
+
+.report-hero { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(300px, .65fr); gap: 18px; align-items: stretch; }
+.hero-panel { padding: 34px; }
+.hero-panel h1 { margin: 18px 0 16px; font-size: clamp(38px, 5.8vw, 68px); line-height: 1.02; letter-spacing: -0.038em; font-weight: 860; }
+.hero-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 22px; }
+.score-panel { padding: 28px; }
+.state-grid { display: grid; gap: 10px; margin-top: 18px; color: var(--muted); }
+.state-grid span { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid rgba(23,23,23,.07); }
+.narrative-block h2 { max-width: 720px; letter-spacing: -0.036em; }
+.narrow { max-width: 700px; }
+.eyebrow { margin-bottom: 12px; color: var(--blue); font-size: 12px; font-weight: 820; letter-spacing: .08em; text-transform: uppercase; }
+.metric-grid { margin-top: 22px; }
+.risk-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-top: 22px; }
+.risk-card { padding: 18px; border: 1px solid var(--line); border-radius: 22px; background: rgba(255,255,255,.68); box-shadow: 0 12px 34px rgba(41,36,29,.055); }
+.risk-top { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+.risk-top span { padding: 4px 8px; border-radius: 999px; font-size: 11px; text-transform: uppercase; background: rgba(37,99,235,.09); color: var(--blue); }
+.risk-score { margin: 16px 0 8px; font-size: 32px; font-weight: 840; letter-spacing: -0.03em; }
+.risk-card p { color: var(--muted); line-height: 1.58; }
+.risk-card ul { margin: 12px 0; padding-left: 18px; color: #3b3834; font-size: 13px; line-height: 1.55; }
+.risk-critical { border-color: rgba(190,18,60,.25); background: rgba(255,255,255,.78); }
+.risk-critical .risk-top span { background: rgba(190,18,60,.1); color: var(--red); }
+.risk-high .risk-top span { background: rgba(180,83,9,.12); color: var(--amber); }
+.risk-medium .risk-top span { background: rgba(37,99,235,.1); color: var(--blue); }
+.cta-panel { margin-top: 16px; padding: 24px; display: flex; justify-content: space-between; gap: 18px; align-items: center; }
+.evidence-list li span { color: var(--muted); font-size: 13px; }
+@media (max-width: 1100px) { .risk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 860px) { .report-hero, .risk-grid { grid-template-columns: 1fr; } .cta-panel { display: block; } }

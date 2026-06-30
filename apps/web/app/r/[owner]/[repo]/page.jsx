@@ -52,8 +52,8 @@ function ReportView({ report, installationId }) {
   const copy = buildSocialCopy(report);
   const plan = buildFixPlan(report);
   const strategy = report.strategy;
+  const risks = report.agentFailureRisk?.risks || [];
   const metrics = [
-    ["Overall", report.scores.overall],
     ["Agent Ready", report.scores.agentReady],
     ["Contributor", report.scores.contributorReady],
     ["Context", report.scores.contextQuality],
@@ -63,63 +63,90 @@ function ReportView({ report, installationId }) {
 
   return (
     <>
-      <section style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.35fr) minmax(280px, .65fr)", gap: 18, alignItems: "stretch" }}>
-        <div className="panel" style={{ padding: 32 }}>
-          <div className="badge">PUBLIC REPORT - {report.cached ? "CACHED" : "FRESH SCAN"}</div>
-          <h1 style={{ fontSize: "clamp(40px, 6vw, 72px)", letterSpacing: "-.052em", lineHeight: 1, margin: "18px 0 16px" }}>{report.repository.fullName || report.repository.name}</h1>
-          <p className="section-lead">A readiness report for AI coding agents and contributors, backed by repository evidence, strategy, and fixability analysis.</p>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 22 }}>
+      <section className="report-hero">
+        <div className="panel hero-panel">
+          <div className="badge">AUDIT REPORT ? {report.cached ? "CACHED" : "FRESH SCAN"}</div>
+          <h1>{report.repository.fullName || report.repository.name}</h1>
+          <p className="section-lead">Current State ? Why Agents May Fail ? Fix Path. A reviewable readiness audit for Codex, Claude Code, Cursor, and contributors.</p>
+          <div className="hero-actions">
             <a className="btn btn-secondary" href={links.githubUrl}>Open GitHub</a>
             <a className="btn btn-secondary" href={links.shareCardUrl}>Share Card</a>
-            <a className="btn btn-secondary" href={links.badgeUrl}>Badge SVG</a>
+            <a className="btn btn-secondary" href="/index">Agent Ready Index</a>
           </div>
         </div>
-        <div className="panel" style={{ padding: 26 }}>
+        <div className="panel score-panel">
           <div className="metric-label">Overall score</div>
           <div className="metric-value gradient-text">{report.scores.overall}</div>
           <div className="progress"><span style={{ width: `${report.scores.overall}%` }} /></div>
-          <p className="muted">Posture: <strong>{strategy?.posture || "unknown"}</strong><br />Risk: <strong>{strategy?.riskLevel || "unknown"}</strong></p>
+          <div className="state-grid">
+            <span>Posture <strong>{strategy?.posture || "unknown"}</strong></span>
+            <span>Risk <strong>{strategy?.riskLevel || "unknown"}</strong></span>
+            <span>Evidence <strong>{strategy?.evidenceConfidence ?? 0}%</strong></span>
+          </div>
         </div>
       </section>
 
-      <section className="section">
-        <div className="grid-3">
+      <section className="section narrative-block">
+        <div className="eyebrow">01 ? Current State</div>
+        <h2>Repository readiness, with evidence</h2>
+        <p className="narrow muted">RepoReady does not only show a score. It shows the signals behind the score, where they came from, why they matter, and whether the fix is safe, review-required, or manual-only.</p>
+        <div className="grid-3 metric-grid">
           {metrics.map(([label, value]) => <Metric key={label} label={label} value={value} />)}
         </div>
       </section>
 
       {strategy && (
-        <section className="grid-2" style={{ marginBottom: 16 }}>
+        <section className="grid-2 section">
           <Panel title="Strategy Brief">
             <p className="muted" style={{ marginTop: 0 }}>{strategy.summary.en}</p>
-            <ul className="list">{strategy.priorityActions.map((action) => <li key={action.id}><strong>{action.impact}/{action.effort}</strong> - {action.en}</li>)}</ul>
+            <ul className="list">{strategy.priorityActions.map((action) => <li key={action.id}><strong>{action.impact}/{action.effort}</strong> ? {action.en}</li>)}</ul>
           </Panel>
-          <Panel title="Automation Boundary">
-            <ul className="list">{strategy.automationBoundary.map((item) => <li key={item.level}><strong>{item.level}</strong> - {item.en}</li>)}</ul>
+          <Panel title="Recommended Path">
+            <PathGroup title="Now" items={strategy.recommendedPath?.now?.map((i) => i.en)} />
+            <PathGroup title="Next" items={strategy.recommendedPath?.next?.map((i) => i.en)} />
+            <PathGroup title="Later" items={strategy.recommendedPath?.later?.map((i) => i.en)} />
           </Panel>
         </section>
       )}
 
-      <section className="grid-2">
-        <Panel title="Evidence chain">
-          <ul className="list">{(report.evidence || []).slice(0, 8).map((item) => <li key={item.id || item.title}>{item.title || item.en || item.zh}</li>)}</ul>
-        </Panel>
-        <Panel title="Create a Fix PR">
-          <p className="muted">Turn the report into a reviewable pull request. If the GitHub App is not installed, RepoReady shows a patch preview instead.</p>
+      <section className="section narrative-block">
+        <div className="eyebrow">02 ? Why Agents May Fail</div>
+        <h2>Agent Failure Risk</h2>
+        <p className="narrow muted">These cards predict the most likely failure modes for AI coding agents in this repository: scope drift, validation gaps, unsafe boundaries, onboarding gaps, and context confusion.</p>
+        <div className="risk-grid">
+          {risks.map((risk) => <RiskCard key={risk.id} risk={risk} />)}
+        </div>
+      </section>
+
+      <section className="section narrative-block">
+        <div className="eyebrow">03 ? Fix Path</div>
+        <h2>Explainable, reviewable fixes</h2>
+        <div className="grid-3">
+          <FixBucket title="Safe automatic fixes" items={plan.safe} empty="No safe fixes needed." />
+          <FixBucket title="Review-required fixes" items={plan.review} empty="No review fixes needed." />
+          <Panel title="Manual-only boundaries"><List items={plan.manual.map((i) => `${i.severity.toUpperCase()} ? ${i.en}`)} empty="No manual-only warnings." /></Panel>
+        </div>
+        <div className="panel cta-panel">
+          <div><h2>Create a Fix PR</h2><p className="muted">Generate a professional PR body with evidence, risks, change reasons, and validation commands. If the GitHub App is not installed, RepoReady shows a patch preview.</p></div>
           <FixPrButton repo={links.githubUrl} installationId={installationId} />
+        </div>
+      </section>
+
+      <section className="section grid-2">
+        <Panel title="Audit Evidence Chain">
+          <ul className="list evidence-list">{(report.evidence || []).slice(0, 10).map((item) => <li key={item.id}><strong>{item.status.toUpperCase()}</strong> {item.title}<br /><span>{item.source}{item.detail ? ` ? ${item.detail}` : ""}</span></li>)}</ul>
         </Panel>
+        <Panel title="Top Issues"><List items={report.issues.slice(0, 8).map((i) => `${i.severity.toUpperCase()} ? ${i.title}`)} empty="No major issues detected." /></Panel>
       </section>
 
-      <section className="section grid-2">
-        <Panel title="Top issues"><List items={report.issues.slice(0, 7).map((i) => `${i.severity.toUpperCase()} - ${i.title}`)} empty="No major issues detected." /></Panel>
-        <Panel title="Fixability"><List items={[`Safe automatic fixes: ${plan.safe.length}`, `Needs review: ${plan.review.length}`, `Manual only: ${plan.manual.length}`, ...[...plan.safe, ...plan.review].slice(0, 5).map((c) => c.path)]} /></Panel>
-      </section>
-
-      {strategy && <section className="grid-2"><Panel title="Growth plan"><List items={strategy.growthPlan.map((item) => item.en)} /></Panel><Panel title="README badge"><pre className="code">{`[![RepoReady](${links.badgeUrl})](${links.publicUrl})`}</pre></Panel></section>}
-
-      <section className="section grid-2">
-        <Panel title="Social copy"><pre className="code">{copy.x}{"\n\n"}{copy.zh}</pre></Panel>
-        <Panel title="Share card"><img alt="RepoReady share card" src={links.shareCardUrl} style={{ width: "100%", borderRadius: 20, border: "1px solid var(--line)" }} /></Panel>
+      <section className="section narrative-block">
+        <div className="eyebrow">04 ? Share / Growth</div>
+        <h2>Make readiness visible</h2>
+        <div className="grid-2">
+          <Panel title="README badge"><pre className="code">{`[![RepoReady](${links.badgeUrl})](${links.publicUrl})`}</pre></Panel>
+          <Panel title="Social copy"><pre className="code">{copy.x}{"\n\n"}{copy.zh}</pre></Panel>
+        </div>
+        <div className="panel" style={{ padding: 18, marginTop: 16 }}><img alt="RepoReady share card" src={links.shareCardUrl} style={{ width: "100%", borderRadius: 18, border: "1px solid var(--line)" }} /></div>
       </section>
 
       <section className="section">
@@ -130,6 +157,10 @@ function ReportView({ report, installationId }) {
     </>
   );
 }
+
+function PathGroup({ title, items = [] }) { return <div style={{ marginBottom: 14 }}><strong>{title}</strong><List items={items} empty="No items." /></div>; }
+function RiskCard({ risk }) { return <article className={`risk-card risk-${risk.level}`}><div className="risk-top"><strong>{risk.title}</strong><span>{risk.level}</span></div><div className="risk-score">{risk.score}/100</div><p>{risk.whyAgentsFail}</p><ul>{(risk.evidence || []).slice(0, 3).map((e) => <li key={`${risk.id}-${e.source}-${e.detail}`}>{e.source}: {e.detail}</li>)}</ul><p className="muted"><strong>Mitigation:</strong> {risk.mitigation}</p></article>; }
+function FixBucket({ title, items, empty }) { return <Panel title={title}><List items={(items || []).map((item) => `${item.path} ? ${item.reason || "Generated by RepoReady"}`)} empty={empty} /></Panel>; }
 
 function Metric({ label, value }) {
   return <div className="card metric"><div className="metric-label">{label}</div><div className="metric-value">{value}</div><div className="progress"><span style={{ width: `${value}%` }} /></div></div>;

@@ -163,3 +163,40 @@ test("spec, policy, and fix plan expose strategic readiness controls", async () 
   assert.equal(fixPlan.manual.some((item) => item.id === "dangerous-scripts"), true);
   assert.match(renderFixPlan(fixPlan, { lang: "en" }), /Safe automatic fixes/);
 });
+
+
+test("agent failure risk exposes critical gaps for empty repositories", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "repoready-failure-risk-empty-"));
+  const report = await scanRepository({ cwd: dir });
+  assert.ok(report.agentFailureRisk);
+  const ids = report.agentFailureRisk.topRisks.map((risk) => risk.id);
+  assert.ok(ids.includes("scope_drift"));
+  assert.ok(ids.includes("validation_gap"));
+  assert.ok(ids.includes("onboarding_gap"));
+  const zhMarkdown = renderReport(report, { format: "markdown", lang: "zh" });
+  assert.ok(zhMarkdown.includes("\u0041gent \u5931\u8d25\u98ce\u9669"));
+  assert.ok(zhMarkdown.includes("\u7b56\u7565"));
+  assert.ok(zhMarkdown.includes("\u6001\u52bf"));
+  assert.ok(zhMarkdown.includes("\u98ce\u9669\u7b49\u7ea7"));
+  assert.ok(zhMarkdown.includes("\u4f18\u5148\u52a8\u4f5c"));
+  assert.ok(zhMarkdown.includes("\u81ea\u52a8\u5316\u8fb9\u754c"));
+  assert.doesNotMatch(zhMarkdown, /\?\?/);
+});
+
+test("dangerous scripts produce safety boundary risk", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "repoready-failure-risk-danger-"));
+  await fs.writeFile(path.join(dir, "package.json"), JSON.stringify({ scripts: { test: "node --test", destroy: "rm -rf /" } }), "utf8");
+  const report = await scanRepository({ cwd: dir });
+  const safety = report.agentFailureRisk.risks.find((risk) => risk.id === "safety_boundary");
+  assert.ok(safety);
+  assert.equal(safety.level === "high" || safety.level === "critical", true);
+});
+
+test("json report includes agentFailureRisk", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "repoready-json-risk-"));
+  const report = await scanRepository({ cwd: dir });
+  const json = JSON.parse(renderReport(report, { format: "json" }));
+  assert.ok(json.agentFailureRisk);
+  assert.ok(json.strategy.recommendedPath);
+  assert.ok(json.strategy.agentFailureRiskSummary);
+});

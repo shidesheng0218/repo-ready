@@ -128,7 +128,7 @@ Guidance for Claude Code working in this repository.
 `;
 }
 
-export const VERSION = "0.3.1";
+export const VERSION = "0.4.0";
 
 export async function scanRepository(options = {}) {
   const cwd = path.resolve(options.cwd || process.cwd());
@@ -152,6 +152,7 @@ export async function scanRepository(options = {}) {
   const recommendations = buildRecommendations(issues);
   const taskSuggestions = buildTaskSuggestions({ stack, commands, issues });
   const fixes = generateFixes({ stack, commands, readme, readmeSignals, agentFiles, fileSet, scores, repoHealth });
+  const agentFailureRisk = buildAgentFailureRisk({ agentFiles, commands, readmeSignals, repoHealth, contextNoise, dangerousScripts });
 
   const templates = matchTemplates(stack);
 
@@ -161,7 +162,7 @@ export async function scanRepository(options = {}) {
     safetyBoundaries: analyzeSafetyBoundaries(fileSet, dangerousScripts, repoHealth),
     taskGraph: analyzeTaskGraph(stack, commands, fileSet, readmeSignals, agentFiles, issues)
   };
-  const strategy = buildRepositoryStrategy({ scores, issues, recommendations, fixes, evidence, deepAnalysis, commands, agentFiles, repoHealth, contextNoise, dangerousScripts });
+  const strategy = buildRepositoryStrategy({ scores, issues, recommendations, fixes, evidence, deepAnalysis, commands, agentFiles, repoHealth, contextNoise, dangerousScripts, agentFailureRisk });
 
   const aiEnhancements = await applyAiEnhancements(deepAnalysis, stack, commands, fixes, options, cwd);
   const baseline = await loadBaseline(cwd);
@@ -186,6 +187,8 @@ export async function scanRepository(options = {}) {
     recommendations,
     taskSuggestions,
     fixes
+    ,
+    agentFailureRisk
     ,
     templates
     ,
@@ -502,52 +505,173 @@ function analyzeCodeQuality({ commands, fileSet, repoHealth, manifests }) {
 }
 
 function buildEvidence({ agentFiles, commands, readmeSignals, repoHealth, contextNoise, dangerousScripts, codeQuality }) {
-  const pass = (id, title, titleZh, detail = "") => ({ id, status: "pass", title, titleZh, detail });
-  const fail = (id, title, titleZh, detail = "") => ({ id, status: "fail", title, titleZh, detail });
+  const item = ({ id, status, severity = "low", category, title, titleZh, source = "heuristic", detail = "", impact, impactZh, fixability = "review", suggestedFix = "", suggestedFixZh = "" }) => ({ id, status, severity, category, title, titleZh, source, detail, impact, impactZh, fixability, suggestedFix, suggestedFixZh });
+  const pass = (id, category, title, titleZh, source, detail = "", impact = "This signal helps agents understand and validate the repository.", impactZh = "\u8be5\u4fe1\u53f7\u6709\u52a9\u4e8e agent \u7406\u89e3\u548c\u9a8c\u8bc1\u4ed3\u5e93\u3002") => item({ id, status: "pass", severity: "low", category, title, titleZh, source, detail, impact, impactZh, fixability: "none" });
+  const fail = (id, category, severity, title, titleZh, source, detail, impact, impactZh, fixability, suggestedFix, suggestedFixZh) => item({ id, status: "fail", severity, category, title, titleZh, source, detail, impact, impactZh, fixability, suggestedFix, suggestedFixZh });
   return [
     agentFiles.any
-      ? pass("agent-instructions", "Agent instructions detected", "已检测到 Agent 协作说明", [agentFiles.agentsMd ? "AGENTS.md" : null, agentFiles.claudeMd ? "CLAUDE.md" : null, agentFiles.cursorRules ? ".cursor/rules" : null].filter(Boolean).join(", "))
-      : fail("agent-instructions", "Agent instructions missing", "缺少 Agent 协作说明"),
-    commands.test ? pass("test-command", "Test command detected", "已检测到测试命令", commands.test) : fail("test-command", "Test command missing", "缺少测试命令"),
-    commands.build ? pass("build-command", "Build command detected", "已检测到构建命令", commands.build) : fail("build-command", "Build command missing", "缺少构建命令"),
-    repoHealth.hasCi ? pass("ci-workflow", "GitHub Actions workflow detected", "已检测到 GitHub Actions 工作流", repoHealth.workflows?.[0] || "") : fail("ci-workflow", "GitHub Actions workflow missing", "缺少 GitHub Actions 工作流"),
-    readmeSignals.exists ? pass("readme", "README detected", "已检测到 README", [readmeSignals.hasInstall ? "install" : null, readmeSignals.hasUsage ? "usage" : null, readmeSignals.hasTest ? "test" : null, readmeSignals.hasContributing ? "contributing" : null].filter(Boolean).join(", ")) : fail("readme", "README missing", "缺少 README"),
-    dangerousScripts.length === 0 ? pass("safe-scripts", "No dangerous scripts detected", "未发现危险脚本") : fail("safe-scripts", "Dangerous scripts detected", "检测到危险脚本", dangerousScripts.map((s) => s.name).join(", ")),
-    contextNoise.generatedFilesTracked.length === 0 && contextNoise.largeFiles.length === 0 ? pass("clean-context", "Repository context is clean", "仓库上下文较干净") : fail("clean-context", "Context noise detected", "检测到上下文噪音", `${contextNoise.generatedFilesTracked.length} generated/cache, ${contextNoise.largeFiles.length} large files`),
-    codeQuality.score >= 70 ? pass("code-quality", "Code quality signals are strong", "代码质量信号较强", `${codeQuality.score}/100`) : fail("code-quality", "Code quality signals are weak", "代码质量信号较弱", `${codeQuality.score}/100`)
+      ? pass("agent-instructions", "agent", "Agent instructions detected", "\u5df2\u68c0\u6d4b\u5230 Agent \u534f\u4f5c\u8bf4\u660e", "file-tree", [agentFiles.agentsMd ? "AGENTS.md" : null, agentFiles.claudeMd ? "CLAUDE.md" : null, agentFiles.cursorRules ? ".cursor/rules" : null].filter(Boolean).join(", "), "Agents have explicit project instructions instead of guessing structure and rules.", "Agent \u6709\u660e\u786e\u7684\u9879\u76ee\u7ed3\u6784\u3001\u547d\u4ee4\u548c\u89c4\u5219\uff0c\u4e0d\u5fc5\u731c\u6d4b\u3002")
+      : fail("agent-instructions", "agent", "high", "Agent instructions missing", "\u7f3a\u5c11 Agent \u534f\u4f5c\u8bf4\u660e", "file-tree", "AGENTS.md / CLAUDE.md / .cursor/rules not found", "Agents may drift in scope or modify the wrong files without explicit repository instructions.", "\u7f3a\u5c11\u660e\u786e\u8bf4\u660e\u65f6\uff0cagent \u5bb9\u6613\u6269\u5927\u8303\u56f4\u6216\u4fee\u6539\u9519\u8bef\u6587\u4ef6\u3002", "safe", "Add AGENTS.md with structure, commands, rules, and safety boundaries.", "\u6dfb\u52a0 AGENTS.md\uff0c\u8bf4\u660e\u7ed3\u6784\u3001\u547d\u4ee4\u3001\u89c4\u5219\u548c\u5b89\u5168\u8fb9\u754c\u3002"),
+    commands.test
+      ? pass("test-command", "validation", "Test command detected", "\u5df2\u68c0\u6d4b\u5230\u6d4b\u8bd5\u547d\u4ee4", "package.json", commands.test, "Agents can validate code changes after editing.", "Agent \u4fee\u6539\u4ee3\u7801\u540e\u53ef\u4ee5\u9a8c\u8bc1\u7ed3\u679c\u3002")
+      : fail("test-command", "validation", "high", "Test command missing", "\u7f3a\u5c11\u6d4b\u8bd5\u547d\u4ee4", "package.json", "No test script or documented test command detected", "Agents cannot reliably validate changes, increasing regression risk.", "Agent \u65e0\u6cd5\u53ef\u9760\u9a8c\u8bc1\u4fee\u6539\uff0c\u56de\u5f52\u98ce\u9669\u5347\u9ad8\u3002", "review", "Document or add a test command.", "\u8865\u5145\u6216\u8bf4\u660e\u6d4b\u8bd5\u547d\u4ee4\u3002"),
+    commands.build
+      ? pass("build-command", "validation", "Build command detected", "\u5df2\u68c0\u6d4b\u5230\u6784\u5efa\u547d\u4ee4", "package.json", commands.build, "Production readiness can be checked before merge.", "\u5408\u5e76\u524d\u53ef\u4ee5\u68c0\u67e5\u751f\u4ea7\u6784\u5efa\u53ef\u7528\u6027\u3002")
+      : fail("build-command", "validation", "medium", "Build command missing", "\u7f3a\u5c11\u6784\u5efa\u547d\u4ee4", "package.json", "No build command detected", "Agents cannot confirm production build readiness.", "Agent \u65e0\u6cd5\u786e\u8ba4\u751f\u4ea7\u6784\u5efa\u662f\u5426\u53ef\u7528\u3002", "review", "Document or add a build command.", "\u8865\u5145\u6216\u8bf4\u660e\u6784\u5efa\u547d\u4ee4\u3002"),
+    repoHealth.hasCi
+      ? pass("ci-workflow", "validation", "GitHub Actions workflow detected", "\u5df2\u68c0\u6d4b\u5230 GitHub Actions \u5de5\u4f5c\u6d41", ".github/workflows/*", repoHealth.workflows?.[0] || "", "Pull requests can be validated consistently.", "PR \u53ef\u4ee5\u83b7\u5f97\u7a33\u5b9a\u4e00\u81f4\u7684\u81ea\u52a8\u9a8c\u8bc1\u3002")
+      : fail("ci-workflow", "validation", "medium", "GitHub Actions workflow missing", "\u7f3a\u5c11 GitHub Actions \u5de5\u4f5c\u6d41", ".github/workflows/*", "No workflow file detected", "Agent-authored changes are harder to review without CI feedback.", "\u6ca1\u6709 CI \u53cd\u9988\u65f6\uff0cagent \u751f\u6210\u7684\u4fee\u6539\u66f4\u96be\u5ba1\u67e5\u3002", "review", "Add a minimal CI workflow.", "\u6dfb\u52a0\u6700\u5c0f\u53ef\u7528\u7684 CI \u5de5\u4f5c\u6d41\u3002"),
+    readmeSignals.exists
+      ? pass("readme", "onboarding", "README detected", "\u5df2\u68c0\u6d4b\u5230 README", "README.md", [readmeSignals.hasInstall ? "install" : null, readmeSignals.hasUsage ? "usage" : null, readmeSignals.hasTest ? "test" : null, readmeSignals.hasContributing ? "contributing" : null].filter(Boolean).join(", "), "Humans and agents have an onboarding entry point.", "\u65b0\u4eba\u548c agent \u90fd\u6709\u9879\u76ee\u5165\u53e3\u8bf4\u660e\u3002")
+      : fail("readme", "onboarding", "high", "README missing", "\u7f3a\u5c11 README", "README.md", "README not found or empty", "Agents and contributors must infer install, usage, and contribution paths.", "Agent \u548c\u8d21\u732e\u8005\u5fc5\u987b\u731c\u6d4b\u5b89\u88c5\u3001\u4f7f\u7528\u548c\u8d21\u732e\u65b9\u5f0f\u3002", "review", "Add README with install, usage, test, and contribution sections.", "\u6dfb\u52a0\u5305\u542b\u5b89\u88c5\u3001\u4f7f\u7528\u3001\u6d4b\u8bd5\u548c\u8d21\u732e\u8bf4\u660e\u7684 README\u3002"),
+    dangerousScripts.length === 0
+      ? pass("safe-scripts", "safety", "No dangerous scripts detected", "\u672a\u53d1\u73b0\u5371\u9669\u811a\u672c", "package.json", "", "No obvious destructive scripts were detected statically.", "\u9759\u6001\u626b\u63cf\u672a\u53d1\u73b0\u660e\u663e\u7834\u574f\u6027\u811a\u672c\u3002")
+      : fail("safe-scripts", "safety", "critical", "Dangerous scripts detected", "\u53d1\u73b0\u5371\u9669\u811a\u672c", "package.json", dangerousScripts.map((s) => s.name).join(", "), "Agents may accidentally run destructive, deployment, database, or force-push commands.", "Agent \u53ef\u80fd\u8bef\u89e6\u7834\u574f\u6027\u3001\u90e8\u7f72\u3001\u6570\u636e\u5e93\u6216\u5f3a\u5236\u63a8\u9001\u547d\u4ee4\u3002", "manual", "Review dangerous scripts manually and mark them human-approval-only.", "\u4eba\u5de5\u5ba1\u67e5\u5371\u9669\u811a\u672c\uff0c\u5e76\u6807\u8bb0\u4e3a\u4ec5\u5141\u8bb8\u4eba\u5de5\u6279\u51c6\u540e\u6267\u884c\u3002"),
+    contextNoise.generatedFilesTracked.length === 0 && contextNoise.largeFiles.length === 0
+      ? pass("clean-context", "context", "Repository context is clean", "\u4ed3\u5e93\u4e0a\u4e0b\u6587\u8f83\u5e72\u51c0", "file-tree", "", "Agent context is less likely to be polluted by generated files or large artifacts.", "Agent \u4e0a\u4e0b\u6587\u4e0d\u5bb9\u6613\u88ab\u751f\u6210\u7269\u6216\u5927\u6587\u4ef6\u6c61\u67d3\u3002")
+      : fail("clean-context", "context", "medium", "Context noise detected", "\u53d1\u73b0\u4e0a\u4e0b\u6587\u566a\u97f3", "file-tree", `${contextNoise.generatedFilesTracked.length} generated/cache, ${contextNoise.largeFiles.length} large files`, "Agents may waste context on generated files, caches, or large artifacts.", "Agent \u53ef\u80fd\u628a\u4e0a\u4e0b\u6587\u6d6a\u8d39\u5728\u751f\u6210\u7269\u3001\u7f13\u5b58\u6216\u5927\u6587\u4ef6\u4e0a\u3002", "review", "Update .gitignore and remove unnecessary generated artifacts.", "\u66f4\u65b0 .gitignore\uff0c\u5e76\u79fb\u9664\u4e0d\u5fc5\u8981\u7684\u751f\u6210\u7269\u3002"),
+    codeQuality.score >= 70
+      ? pass("code-quality", "quality", "Code quality signals are strong", "\u4ee3\u7801\u8d28\u91cf\u4fe1\u53f7\u8f83\u5f3a", "heuristic", `${codeQuality.score}/100`, "Quality signals make agent changes easier to validate and review.", "\u8d28\u91cf\u4fe1\u53f7\u8ba9 agent \u4fee\u6539\u66f4\u5bb9\u6613\u9a8c\u8bc1\u548c\u5ba1\u67e5\u3002")
+      : fail("code-quality", "quality", "medium", "Code quality signals are weak", "\u4ee3\u7801\u8d28\u91cf\u4fe1\u53f7\u8f83\u5f31", "heuristic", `${codeQuality.score}/100`, "Weak quality signals reduce confidence in agent-authored changes.", "\u8d28\u91cf\u4fe1\u53f7\u4e0d\u8db3\u4f1a\u964d\u4f4e\u5bf9 agent \u4fee\u6539\u7684\u4fe1\u5fc3\u3002", "review", "Add or document lint/check/test signals.", "\u8865\u5145\u6216\u8bf4\u660e lint/check/test \u4fe1\u53f7\u3002")
   ];
+}
+
+function buildRecommendations(issues) {
+  return issues.map((issue) => ({
+    id: issue.id,
+    severity: issue.severity,
+    fixable: issue.fixable,
+    en: recommendationText(issue, "en"),
+    zh: recommendationText(issue, "zh")
+  }));
+}
+
+function buildAgentFailureRisk({ agentFiles, commands, readmeSignals, repoHealth, contextNoise, dangerousScripts }) {
+  const risk = ({ id, score, title, titleZh, whyAgentsFail, whyAgentsFailZh, evidence, mitigation, mitigationZh, fixability }) => ({
+    id,
+    level: levelFromRiskScore(score),
+    score: Math.max(0, Math.min(100, Math.round(score))),
+    title,
+    titleZh,
+    whyAgentsFail,
+    whyAgentsFailZh,
+    evidence,
+    mitigation,
+    mitigationZh,
+    fixability
+  });
+  const contextScore = Math.min(100, (contextNoise.generatedFilesTracked.length ? 34 : 0) + (contextNoise.largeFiles.length ? 34 : 0) + (!repoHealth.hasGitignore ? 32 : 0));
+  const validationScore = Math.min(100, (!commands.test ? 45 : 0) + (!commands.build ? 25 : 0) + (!commands.lint && !commands.typecheck ? 20 : 0) + (!repoHealth.hasCi ? 10 : 0));
+  const safetyScore = Math.min(100, (dangerousScripts.length ? 70 : 0) + ((repoHealth.envFiles || []).length ? 60 : 0));
+  const onboardingScore = readmeSignals.exists ? Math.min(100, (!readmeSignals.hasInstall ? 22 : 0) + (!readmeSignals.hasUsage ? 22 : 0) + (!readmeSignals.hasTest ? 22 : 0) + (!readmeSignals.hasContributing ? 18 : 0) + (!readmeSignals.hasDemo ? 10 : 0)) : 88;
+  const scopeScore = Math.min(100, (!agentFiles.any ? 78 : 0) + (!agentFiles.agentsMd ? 14 : 0));
+  const risks = [
+    risk({ id: "context_confusion", score: contextScore, title: "Context Confusion Risk", titleZh: "\u4e0a\u4e0b\u6587\u6df7\u6dc6\u98ce\u9669", whyAgentsFail: "Agents may waste context on generated files, caches, or large artifacts and choose the wrong files to edit.", whyAgentsFailZh: "Agent \u53ef\u80fd\u628a\u4e0a\u4e0b\u6587\u6d6a\u8d39\u5728\u751f\u6210\u7269\u3001\u7f13\u5b58\u6216\u5927\u6587\u4ef6\u4e0a\uff0c\u5e76\u56e0\u6b64\u9009\u9519\u8981\u4fee\u6539\u7684\u6587\u4ef6\u3002", evidence: [{ source: "file-tree", detail: `${contextNoise.generatedFilesTracked.length} generated/cache files tracked` }, { source: "file-tree", detail: `${contextNoise.largeFiles.length} large files detected` }, { source: ".gitignore", detail: repoHealth.hasGitignore ? ".gitignore detected" : ".gitignore missing" }], mitigation: "Keep generated files, caches, and large artifacts out of repository context.", mitigationZh: "\u628a\u751f\u6210\u7269\u3001\u7f13\u5b58\u548c\u5927\u6587\u4ef6\u6392\u9664\u5728\u4ed3\u5e93\u4e0a\u4e0b\u6587\u4e4b\u5916\u3002", fixability: contextScore >= 60 ? "review" : "safe" }),
+    risk({ id: "validation_gap", score: validationScore, title: "Validation Gap", titleZh: "\u9a8c\u8bc1\u7f3a\u53e3", whyAgentsFail: "Agents can change code but cannot reliably prove the change works without test, build, lint, or CI signals.", whyAgentsFailZh: "\u7f3a\u5c11\u6d4b\u8bd5\u3001\u6784\u5efa\u3001lint \u6216 CI \u4fe1\u53f7\u65f6\uff0cAgent \u5373\u4f7f\u5b8c\u6210\u4fee\u6539\u4e5f\u65e0\u6cd5\u53ef\u9760\u8bc1\u660e\u4fee\u6539\u6709\u6548\u3002", evidence: [{ source: "package.json", detail: commands.test ? `test: ${commands.test}` : "test command missing" }, { source: "package.json", detail: commands.build ? `build: ${commands.build}` : "build command missing" }, { source: ".github/workflows/*", detail: repoHealth.hasCi ? "CI detected" : "CI missing" }], mitigation: "Document or add validation commands and run them in CI.", mitigationZh: "\u8865\u5145\u9a8c\u8bc1\u547d\u4ee4\uff0c\u5e76\u5c3d\u91cf\u5728 CI \u4e2d\u8fd0\u884c\u3002", fixability: "review" }),
+    risk({ id: "safety_boundary", score: safetyScore, title: "Safety Boundary Risk", titleZh: "\u5b89\u5168\u8fb9\u754c\u98ce\u9669", whyAgentsFail: "Agents may accidentally run destructive, deployment, database, secret, or force-push commands without an explicit boundary.", whyAgentsFailZh: "\u6ca1\u6709\u660e\u786e\u8fb9\u754c\u65f6\uff0cAgent \u53ef\u80fd\u8bef\u89e6\u7834\u574f\u6027\u3001\u90e8\u7f72\u3001\u6570\u636e\u5e93\u3001\u5bc6\u94a5\u6216\u5f3a\u5236\u63a8\u9001\u76f8\u5173\u547d\u4ee4\u3002", evidence: [{ source: "package.json", detail: dangerousScripts.length ? dangerousScripts.map((s) => `${s.name}: ${s.label}`).join(", ") : "no dangerous scripts detected" }, { source: "file-tree", detail: (repoHealth.envFiles || []).length ? `${repoHealth.envFiles.length} env files committed` : "no committed env files detected" }], mitigation: "Mark risky commands as human-approval-only and keep secrets out of source control.", mitigationZh: "\u628a\u9ad8\u98ce\u9669\u547d\u4ee4\u6807\u8bb0\u4e3a\u4ec5\u4eba\u5de5\u6279\u51c6\u540e\u6267\u884c\uff0c\u5e76\u907f\u514d\u628a\u5bc6\u94a5\u63d0\u4ea4\u5230\u6e90\u7801\u3002", fixability: safetyScore ? "manual" : "safe" }),
+    risk({ id: "onboarding_gap", score: onboardingScore, title: "Onboarding Gap", titleZh: "\u4e0a\u624b\u8bf4\u660e\u7f3a\u53e3", whyAgentsFail: "Agents and contributors need to infer installation, usage, testing, and contribution paths from scattered context.", whyAgentsFailZh: "Agent \u548c\u8d21\u732e\u8005\u9700\u8981\u4ece\u96f6\u6563\u4e0a\u4e0b\u6587\u4e2d\u731c\u6d4b\u5b89\u88c5\u3001\u4f7f\u7528\u3001\u6d4b\u8bd5\u548c\u8d21\u732e\u8def\u5f84\u3002", evidence: [{ source: "README.md", detail: readmeSignals.exists ? "README detected" : "README missing" }, { source: "README.md", detail: `install=${readmeSignals.hasInstall}, usage=${readmeSignals.hasUsage}, test=${readmeSignals.hasTest}, contributing=${readmeSignals.hasContributing}` }], mitigation: "Add concise install, usage, testing, and contribution sections.", mitigationZh: "\u8865\u5145\u7b80\u6d01\u7684\u5b89\u88c5\u3001\u4f7f\u7528\u3001\u6d4b\u8bd5\u548c\u8d21\u732e\u8bf4\u660e\u3002", fixability: "review" }),
+    risk({ id: "scope_drift", score: scopeScore, title: "Scope Drift Risk", titleZh: "\u8303\u56f4\u6f02\u79fb\u98ce\u9669", whyAgentsFail: "Without agent instructions, agents may expand the task, edit unrelated files, or miss project-specific conventions.", whyAgentsFailZh: "\u7f3a\u5c11 agent \u6307\u4ee4\u65f6\uff0cAgent \u5bb9\u6613\u6269\u5927\u4efb\u52a1\u8303\u56f4\u3001\u4fee\u6539\u65e0\u5173\u6587\u4ef6\uff0c\u6216\u5ffd\u7565\u9879\u76ee\u7279\u5b9a\u89c4\u8303\u3002", evidence: [{ source: "file-tree", detail: agentFiles.agentsMd ? "AGENTS.md detected" : "AGENTS.md missing" }, { source: "file-tree", detail: agentFiles.claudeMd ? "CLAUDE.md detected" : "CLAUDE.md missing" }, { source: "file-tree", detail: agentFiles.cursorRules ? ".cursor/rules detected" : ".cursor/rules missing" }], mitigation: "Add AGENTS.md with file scope, commands, coding rules, and safety boundaries.", mitigationZh: "\u6dfb\u52a0 AGENTS.md\uff0c\u8bf4\u660e\u6587\u4ef6\u8303\u56f4\u3001\u547d\u4ee4\u3001\u7f16\u7801\u89c4\u5219\u548c\u5b89\u5168\u8fb9\u754c\u3002", fixability: "safe" })
+  ];
+  const sorted = [...risks].sort((a, b) => b.score - a.score);
+  const topRisks = sorted.filter((item) => item.score > 0).slice(0, 3);
+  const overallLevel = topRisks[0]?.level || "low";
+  return {
+    overallLevel,
+    topRisks,
+    risks,
+    summary: topRisks.length ? `Top agent failure risk: ${topRisks[0].title}. ${topRisks[0].mitigation}` : "No major agent failure risks detected. Keep policy and validation signals current.",
+    summaryZh: topRisks.length ? `\u6700\u4e3b\u8981\u7684 agent \u5931\u8d25\u98ce\u9669\uff1a${topRisks[0].titleZh}\u3002${topRisks[0].mitigationZh}` : "\u672a\u53d1\u73b0\u4e3b\u8981 agent \u5931\u8d25\u98ce\u9669\u3002\u8bf7\u6301\u7eed\u7ef4\u62a4\u7b56\u7565\u548c\u9a8c\u8bc1\u4fe1\u53f7\u3002"
+  };
+}
+
+function levelFromRiskScore(score) {
+  if (score >= 85) return "critical";
+  if (score >= 60) return "high";
+  if (score >= 30) return "medium";
+  return "low";
+}
+
+function buildRepositoryStrategy(input) {
+  const { scores, issues, fixes, evidence, deepAnalysis, commands, agentFiles, repoHealth, contextNoise, dangerousScripts, agentFailureRisk } = input;
+  const fixPlan = buildFixPlan({ fixes, dangerousScripts, repoHealth, contextNoise });
+  const highIssues = issues.filter((issue) => issue.severity === "high").length;
+  const mediumIssues = issues.filter((issue) => issue.severity === "medium").length;
+  const posture = scores.overall >= 90 ? "scale" : scores.overall >= 75 ? "polish" : scores.overall >= 55 ? "stabilize" : "recover";
+  const summaryByPosture = {
+    scale: { en: "This repository already has strong agent-readiness signals. The highest-leverage move is to make that readiness visible with badges, public reports, and a repeatable policy gate.", zh: "\u8be5\u4ed3\u5e93\u5df2\u7ecf\u5177\u5907\u8f83\u5f3a\u7684 AI agent \u9002\u914d\u4fe1\u53f7\u3002\u6700\u9ad8\u6760\u6746\u52a8\u4f5c\u662f\u7528 badge\u3001\u516c\u5f00\u62a5\u544a\u548c\u7b56\u7565\u95e8\u7981\u628a\u8fd9\u79cd\u80fd\u529b\u5c55\u793a\u51fa\u6765\u3002" },
+    polish: { en: "This repository is usable for AI agents, but a few missing signals still force agents or contributors to guess. Focus on quick fixes and documentation precision.", zh: "\u8be5\u4ed3\u5e93\u5df2\u7ecf\u53ef\u4ee5\u88ab AI agent \u4f7f\u7528\uff0c\u4f46\u4ecd\u6709\u5c11\u91cf\u7f3a\u5931\u4fe1\u53f7\u4f1a\u8feb\u4f7f agent \u6216\u8d21\u732e\u8005\u731c\u6d4b\u3002\u4f18\u5148\u505a\u5feb\u901f\u4fee\u590d\u548c\u6587\u6863\u7cbe\u4fee\u3002" },
+    stabilize: { en: "This repository needs a readiness pass before serious agent-driven work. Prioritize validation commands, agent instructions, and safety boundaries before growth tactics.", zh: "\u8be5\u4ed3\u5e93\u5728\u8fdb\u884c\u4e25\u8083\u7684 agent \u9a71\u52a8\u5f00\u53d1\u524d\uff0c\u9700\u8981\u5148\u5b8c\u6210\u9002\u914d\u52a0\u56fa\u3002\u4f18\u5148\u8865\u9f50\u9a8c\u8bc1\u547d\u4ee4\u3001agent \u6307\u4ee4\u548c\u5b89\u5168\u8fb9\u754c\u3002" },
+    recover: { en: "This repository is not yet safe or clear enough for autonomous agent work. Start with minimal instructions, tests, and manual review boundaries.", zh: "\u8be5\u4ed3\u5e93\u76ee\u524d\u8fd8\u4e0d\u591f\u6e05\u6670\u6216\u5b89\u5168\uff0c\u4e0d\u9002\u5408\u81ea\u4e3b agent \u5de5\u4f5c\u3002\u8bf7\u5148\u5efa\u7acb\u6700\u5c0f\u8bf4\u660e\u3001\u6d4b\u8bd5\u548c\u4eba\u5de5\u5ba1\u67e5\u8fb9\u754c\u3002" }
+  };
+  const priorityActions = [];
+  const addAction = (id, impact, effort, en, zh, command = "") => priorityActions.push({ id, impact, effort, en, zh, command });
+  if (!agentFiles.any) addAction("agent-instructions", "high", "low", "Add AGENTS.md so coding agents know project structure, commands, rules, and safety boundaries.", "\u6dfb\u52a0 AGENTS.md\uff0c\u8ba9 coding agent \u7406\u89e3\u9879\u76ee\u7ed3\u6784\u3001\u547d\u4ee4\u3001\u89c4\u5219\u548c\u5b89\u5168\u8fb9\u754c\u3002", "npx @shidesheng0218/repo-ready@latest fix --only agents --dry-run");
+  if (!commands.test) addAction("test-command", "high", "medium", "Document or add a test command before asking agents to modify code.", "\u5728\u8ba9 agent \u4fee\u6539\u4ee3\u7801\u524d\uff0c\u5148\u8865\u5145\u6216\u8bf4\u660e\u6d4b\u8bd5\u547d\u4ee4\u3002");
+  if (!repoHealth.hasCi) addAction("ci", "medium", "medium", "Add a minimal CI workflow so human and agent changes are verifiable in pull requests.", "\u6dfb\u52a0\u6700\u5c0f CI \u5de5\u4f5c\u6d41\uff0c\u8ba9\u4eba\u548c agent \u7684\u4fee\u6539\u90fd\u80fd\u5728 PR \u4e2d\u9a8c\u8bc1\u3002");
+  if (dangerousScripts.length) addAction("safety-boundary", "high", "medium", "Review dangerous scripts and mark them as human-approval-only in AGENTS.md.", "\u5ba1\u67e5\u5371\u9669\u811a\u672c\uff0c\u5e76\u5728 AGENTS.md \u4e2d\u6807\u8bb0\u4e3a\u4ec5\u4eba\u5de5\u6279\u51c6\u540e\u6267\u884c\u3002");
+  if (contextNoise.generatedFilesTracked.length || contextNoise.largeFiles.length) addAction("context-cleanup", "medium", "medium", "Reduce generated files and large artifacts so agent context stays focused.", "\u51cf\u5c11\u751f\u6210\u7269\u548c\u5927\u6587\u4ef6\uff0c\u8ba9 agent \u4e0a\u4e0b\u6587\u4fdd\u6301\u805a\u7126\u3002");
+  if (!priorityActions.length) addAction("growth", "medium", "low", "Publish the RepoReady badge and public report to make readiness visible.", "\u53d1\u5e03 RepoReady badge \u548c\u516c\u5f00\u62a5\u544a\uff0c\u8ba9\u4ed3\u5e93\u9002\u914d\u5ea6\u53ef\u89c1\u3002");
+  const automationBoundary = [
+    { level: "safe", en: "Create or update agent instruction files, templates, .env.example, and badges.", zh: "\u521b\u5efa\u6216\u66f4\u65b0 agent \u6307\u4ee4\u6587\u4ef6\u3001\u6a21\u677f\u3001.env.example \u548c badge\u3002" },
+    { level: "review", en: "README, CI, package scripts, and workflow changes should be reviewed before merge.", zh: "README\u3001CI\u3001package scripts \u548c workflow \u4fee\u6539\u5e94\u5728\u5408\u5e76\u524d\u5ba1\u67e5\u3002" },
+    { level: "manual", en: "Database, auth, payment, deployment, secrets, and destructive scripts require explicit human approval.", zh: "\u6570\u636e\u5e93\u3001\u8ba4\u8bc1\u3001\u652f\u4ed8\u3001\u90e8\u7f72\u3001\u5bc6\u94a5\u548c\u7834\u574f\u6027\u811a\u672c\u5fc5\u987b\u83b7\u5f97\u660e\u786e\u4eba\u5de5\u6279\u51c6\u3002" }
+  ];
+  const now = priorityActions.slice(0, 2).map((item) => ({ en: item.en, zh: item.zh, command: item.command }));
+  const next = fixPlan.review.slice(0, 3).map((change) => ({ en: `Review generated change for ${change.path}.`, zh: `\u5ba1\u67e5 ${change.path} \u7684\u751f\u6210\u4fee\u6539\u3002`, path: change.path }));
+  const later = [
+    { en: "Publish the RepoReady badge and public report.", zh: "\u53d1\u5e03 RepoReady badge \u548c\u516c\u5f00\u62a5\u544a\u3002" },
+    { en: "Use policy checks as an AI-agent readiness gate in CI.", zh: "\u5728 CI \u4e2d\u4f7f\u7528\u7b56\u7565\u68c0\u67e5\u4f5c\u4e3a AI agent \u9002\u914d\u95e8\u7981\u3002" }
+  ];
+  return {
+    posture,
+    summary: summaryByPosture[posture],
+    readinessGap: Math.max(0, 100 - scores.overall),
+    riskLevel: agentFailureRisk?.overallLevel === "critical" ? "critical" : dangerousScripts.length || highIssues >= 3 ? "high" : highIssues || mediumIssues >= 3 ? "medium" : "low",
+    fixability: { safe: fixPlan.safe.length, review: fixPlan.review.length, manual: fixPlan.manual.length, total: fixes.changes.length },
+    priorityActions: priorityActions.slice(0, 5),
+    automationBoundary,
+    growthPlan: [
+      { en: "Add a RepoReady badge to README after the report is stable.", zh: "\u62a5\u544a\u7a33\u5b9a\u540e\uff0c\u5728 README \u4e2d\u6dfb\u52a0 RepoReady badge\u3002" },
+      { en: "Share the public report page with a short before/after note.", zh: "\u5206\u4eab\u516c\u5f00\u62a5\u544a\u9875\uff0c\u5e76\u9644\u4e0a\u7b80\u77ed\u7684\u524d\u540e\u5bf9\u6bd4\u8bf4\u660e\u3002" },
+      { en: "Use Fix PR as the main call-to-action instead of only showing scores.", zh: "\u628a Fix PR \u4f5c\u4e3a\u4e3b\u8981\u884c\u52a8\u5165\u53e3\uff0c\u800c\u4e0d\u662f\u53ea\u5c55\u793a\u5206\u6570\u3002" }
+    ],
+    agentFailureRiskSummary: agentFailureRisk ? { en: agentFailureRisk.summary, zh: agentFailureRisk.summaryZh, level: agentFailureRisk.overallLevel } : null,
+    recommendedPath: { now, next, later },
+    evidenceConfidence: Math.round(((evidence || []).filter((item) => item.status === "pass").length / Math.max((evidence || []).length, 1)) * 100),
+    deepSignals: { readmeGrade: deepAnalysis.readmeQuality?.grade, dependencyScore: deepAnalysis.dependencyHealth?.score, taskCount: deepAnalysis.taskGraph?.totalTasks }
+  };
 }
 
 function buildScoreBreakdown({ agentFiles, commands, contextNoise, readmeSignals, repoHealth, dangerousScripts, codeQuality }) {
   const item = (id, label, labelZh, earned, max, detail = "") => ({ id, label, labelZh, earned, max, detail });
   return {
     agentReady: [
-      item("agent-instructions", "Agent instructions", "Agent 协作说明", agentFiles.agentsMd ? 28 : 0, 28, "AGENTS.md"),
-      item("claude-instructions", "Claude instructions", "Claude 说明", agentFiles.claudeMd ? 8 : 0, 8, "CLAUDE.md"),
-      item("cursor-rules", "Cursor rules", "Cursor 规则", agentFiles.cursorRules ? 8 : 0, 8, ".cursor/rules"),
-      item("test-command", "Test command", "测试命令", commands.test ? 20 : 0, 20, commands.test || ""),
-      item("build-command", "Build command", "构建命令", commands.build ? 15 : 0, 15, commands.build || ""),
-      item("usage-docs", "Usage docs", "使用说明", readmeSignals.hasUsage ? 8 : 0, 8),
-      item("ci", "CI workflow", "CI 工作流", repoHealth.hasCi ? 13 : 0, 13)
+      item("agent-instructions", "Agent instructions", "\u0041gent \u534f\u4f5c\u8bf4\u660e", agentFiles.agentsMd ? 28 : 0, 28, "AGENTS.md"),
+      item("claude-instructions", "Claude instructions", "\u0043laude \u8bf4\u660e", agentFiles.claudeMd ? 8 : 0, 8, "CLAUDE.md"),
+      item("cursor-rules", "Cursor rules", "\u0043ursor \u89c4\u5219", agentFiles.cursorRules ? 8 : 0, 8, ".cursor/rules"),
+      item("test-command", "Test command", "\u6d4b\u8bd5\u547d\u4ee4", commands.test ? 20 : 0, 20, commands.test || ""),
+      item("build-command", "Build command", "\u6784\u5efa\u547d\u4ee4", commands.build ? 15 : 0, 15, commands.build || ""),
+      item("usage-docs", "Usage docs", "\u4f7f\u7528\u8bf4\u660e", readmeSignals.hasUsage ? 8 : 0, 8),
+      item("ci", "CI workflow", "\u0043I \u5de5\u4f5c\u6d41", repoHealth.hasCi ? 13 : 0, 13)
     ],
     contributorReady: [
       item("readme", "README", "README", readmeSignals.exists ? 14 : 0, 14),
-      item("install-docs", "Install docs", "安装说明", readmeSignals.hasInstall ? 15 : 0, 15),
-      item("usage-docs", "Usage docs", "使用说明", readmeSignals.hasUsage ? 15 : 0, 15),
-      item("test-docs", "Testing docs", "测试说明", readmeSignals.hasTest ? 10 : 0, 10),
-      item("contributing", "Contributing docs", "贡献说明", readmeSignals.hasContributing ? 10 : 0, 10),
-      item("templates", "Issue/PR templates", "Issue/PR 模板", (repoHealth.hasIssueTemplate ? 8 : 0) + (repoHealth.hasPrTemplate ? 8 : 0), 16),
-      item("license", "License", "许可证", repoHealth.hasLicense ? 5 : 0, 5)
+      item("install-docs", "Install docs", "\u5b89\u88c5\u8bf4\u660e", readmeSignals.hasInstall ? 15 : 0, 15),
+      item("usage-docs", "Usage docs", "\u4f7f\u7528\u8bf4\u660e", readmeSignals.hasUsage ? 15 : 0, 15),
+      item("test-docs", "Testing docs", "\u6d4b\u8bd5\u8bf4\u660e", readmeSignals.hasTest ? 10 : 0, 10),
+      item("contributing", "Contributing docs", "\u8d21\u732e\u8bf4\u660e", readmeSignals.hasContributing ? 10 : 0, 10),
+      item("templates", "Issue/PR templates", "\u0049ssue/PR \u6a21\u677f", (repoHealth.hasIssueTemplate ? 8 : 0) + (repoHealth.hasPrTemplate ? 8 : 0), 16),
+      item("license", "License", "\u8bb8\u53ef\u8bc1", repoHealth.hasLicense ? 5 : 0, 5)
     ],
     contextQuality: [
-      item("generated-files", "Generated/cache files", "生成物/缓存文件", Math.max(0, 35 - Math.min(25, contextNoise.generatedFilesTracked.length * 3)), 35),
-      item("large-files", "Large files", "大文件", Math.max(0, 30 - Math.min(25, contextNoise.largeFiles.length * 8)), 30),
-      item("ignore-rules", "Ignore rules", "忽略规则", Math.max(0, 20 - Math.min(15, contextNoise.missingIgnoreRules.length * 2)), 20),
+      item("generated-files", "Generated/cache files", "\u751f\u6210\u7269/\u7f13\u5b58\u6587\u4ef6", Math.max(0, 35 - Math.min(25, contextNoise.generatedFilesTracked.length * 3)), 35),
+      item("large-files", "Large files", "\u5927\u6587\u4ef6", Math.max(0, 30 - Math.min(25, contextNoise.largeFiles.length * 8)), 30),
+      item("ignore-rules", "Ignore rules", "\u5ffd\u7565\u89c4\u5219", Math.max(0, 20 - Math.min(15, contextNoise.missingIgnoreRules.length * 2)), 20),
       item("gitignore", ".gitignore", ".gitignore", repoHealth.hasGitignore ? 10 : 0, 10)
     ],
     safety: [
-      item("dangerous-scripts", "Dangerous scripts", "危险脚本", dangerousScripts.length ? Math.max(0, 60 - dangerousScripts.length * 25) : 60, 60),
-      item("env-files", "Committed env files", "已提交环境变量文件", repoHealth.envFiles.length ? 0 : 40, 40)
+      item("dangerous-scripts", "Dangerous scripts", "\u5371\u9669\u811a\u672c", dangerousScripts.length ? Math.max(0, 60 - dangerousScripts.length * 25) : 60, 60),
+      item("env-files", "Committed env files", "\u5df2\u63d0\u4ea4\u73af\u5883\u53d8\u91cf\u6587\u4ef6", repoHealth.envFiles.length ? 0 : 40, 40)
     ],
     codeQuality: codeQuality.items.map((q) => item(q.id, q.label, q.labelZh || q.label, q.passed ? q.points : 0, q.points, q.detail))
   };
@@ -651,82 +775,6 @@ function calculateScores({ agentFiles, commands, dangerousScripts, contextNoise,
   return scores;
 }
 
-function buildRecommendations(issues) {
-  return issues.map((issue) => ({
-    id: issue.id,
-    severity: issue.severity,
-    fixable: issue.fixable,
-    en: recommendationText(issue, "en"),
-    zh: recommendationText(issue, "zh")
-  }));
-}
-
-function buildRepositoryStrategy(input) {
-  const { scores, issues, fixes, evidence, deepAnalysis, commands, agentFiles, repoHealth, contextNoise, dangerousScripts } = input;
-  const fixPlan = buildFixPlan({ fixes, dangerousScripts, repoHealth, contextNoise });
-  const highIssues = issues.filter((issue) => issue.severity === "high").length;
-  const mediumIssues = issues.filter((issue) => issue.severity === "medium").length;
-  const posture = scores.overall >= 90 ? "scale" : scores.overall >= 75 ? "polish" : scores.overall >= 55 ? "stabilize" : "recover";
-  const summaryByPosture = {
-    scale: {
-      en: "This repository already has strong agent-readiness signals. The highest-leverage move is to make that readiness visible with badges, public reports, and a repeatable policy gate.",
-      zh: "该仓库已经具备较强的 AI agent 适配信号。最高杠杆动作是通过 badge、公开报告和策略门禁把这种成熟度展示出来。"
-    },
-    polish: {
-      en: "This repository is usable for AI agents, but a few missing signals still force agents or contributors to guess. Focus on quick fixes and documentation precision.",
-      zh: "该仓库已经可被 AI agent 使用，但仍有少量关键信号缺失。优先补齐快速修复项和更精确的文档。"
-    },
-    stabilize: {
-      en: "This repository needs a readiness pass before serious agent-driven work. Prioritize validation commands, agent instructions, and safety boundaries before growth tactics.",
-      zh: "该仓库在进行严肃 AI agent 协作前需要一次适配整理。先补验证命令、agent 说明和安全边界，再考虑传播。"
-    },
-    recover: {
-      en: "This repository is not yet safe or clear enough for autonomous agent work. Start with minimal instructions, tests, and manual review boundaries.",
-      zh: "该仓库暂时不适合自治式 agent 工作。应先建立最小说明、测试命令和人工审查边界。"
-    }
-  };
-
-  const priorityActions = [];
-  const addAction = (id, impact, effort, en, zh, command = "") => priorityActions.push({ id, impact, effort, en, zh, command });
-  if (!agentFiles.any) addAction("agent-instructions", "high", "low", "Add AGENTS.md so coding agents know project structure, commands, rules, and safety boundaries.", "添加 AGENTS.md，让 coding agent 明确项目结构、命令、规范和安全边界。", "npx @shidesheng0218/repo-ready@latest fix --only agents --dry-run");
-  if (!commands.test) addAction("test-command", "high", "medium", "Document or add a test command before asking agents to modify code.", "在让 agent 修改代码前，补充或明确测试命令。");
-  if (!repoHealth.hasCi) addAction("ci", "medium", "medium", "Add a minimal CI workflow so human and agent changes are verifiable in pull requests.", "添加最小 CI 工作流，让真人和 agent 的修改都能在 PR 中验证。");
-  if (dangerousScripts.length) addAction("safety-boundary", "high", "medium", "Review dangerous scripts and mark them as human-approval-only in AGENTS.md.", "审查危险脚本，并在 AGENTS.md 中标记为必须人工授权。");
-  if (contextNoise.generatedFilesTracked.length || contextNoise.largeFiles.length) addAction("context-cleanup", "medium", "medium", "Reduce generated files and large artifacts so agent context stays focused.", "减少生成物和大文件，让 agent 上下文更聚焦。");
-  if (!priorityActions.length) addAction("growth", "medium", "low", "Publish the RepoReady badge and public report to make readiness visible.", "发布 RepoReady badge 和公开报告，让仓库成熟度可见。");
-
-  const automationBoundary = [
-    { level: "safe", en: "Create or update agent instruction files, templates, .env.example, and badges.", zh: "创建或更新 agent 说明文件、模板、.env.example 和 badge。" },
-    { level: "review", en: "README, CI, package scripts, and workflow changes should be reviewed before merge.", zh: "README、CI、package scripts 和 workflow 修改应在合并前审查。" },
-    { level: "manual", en: "Database, auth, payment, deployment, secrets, and destructive scripts require explicit human approval.", zh: "数据库、认证、支付、部署、密钥和破坏性脚本必须人工明确授权。" }
-  ];
-
-  return {
-    posture,
-    summary: summaryByPosture[posture],
-    readinessGap: Math.max(0, 100 - scores.overall),
-    riskLevel: dangerousScripts.length || highIssues >= 3 ? "high" : highIssues || mediumIssues >= 3 ? "medium" : "low",
-    fixability: {
-      safe: fixPlan.safe.length,
-      review: fixPlan.review.length,
-      total: fixes.changes.length
-    },
-    priorityActions: priorityActions.slice(0, 5),
-    automationBoundary,
-    growthPlan: [
-      { en: "Add a RepoReady badge to README after the report is stable.", zh: "报告稳定后在 README 添加 RepoReady badge。" },
-      { en: "Share the public report page with a short before/after note.", zh: "分享公开报告页，并配一段前后变化说明。" },
-      { en: "Use Fix PR as the main call-to-action instead of only showing scores.", zh: "把 Fix PR 作为主行动点，而不只是展示分数。" }
-    ],
-    evidenceConfidence: Math.round(((evidence || []).filter((item) => item.status === "pass").length / Math.max((evidence || []).length, 1)) * 100),
-    deepSignals: {
-      readmeGrade: deepAnalysis.readmeQuality?.grade,
-      dependencyScore: deepAnalysis.dependencyHealth?.score,
-      taskCount: deepAnalysis.taskGraph?.totalTasks
-    }
-  };
-}
-
 function weightedScore(items) {
   let total = 0;
   let weightSum = 0;
@@ -792,7 +840,21 @@ export function generateFixes({ stack, commands, readme, readmeSignals, agentFil
   if (!fileSet.has(".github/workflows/repoready.yml")) changes.push({ path: ".github/workflows/repoready.yml", action: "create", content: buildWorkflow(commands) });
   if (!fileSet.has(".github/issue_template/bug_report.md")) changes.push({ path: ".github/ISSUE_TEMPLATE/bug_report.md", action: "create", content: buildIssueTemplate() });
   if (!fileSet.has(".github/pull_request_template.md")) changes.push({ path: ".github/pull_request_template.md", action: "create", content: buildPrTemplate() });
-  return { changes, count: changes.length };
+  const enriched = changes.map(enrichFixChange);
+  return { changes: enriched, count: enriched.length };
+}
+
+function enrichFixChange(change) {
+  const lower = change.path.toLowerCase();
+  const defaults = { reason: "RepoReady generated this file to improve AI-agent readiness.", reasonZh: "RepoReady \u751f\u6210\u8be5\u6587\u4ef6\u4ee5\u63d0\u5347 AI agent \u9002\u914d\u5ea6\u3002", risk: "review" };
+  if (lower === "agents.md") return { ...change, reason: "Agent instructions are missing, so coding agents need explicit structure, commands, rules, and safety boundaries.", reasonZh: "\u7f3a\u5c11 Agent \u534f\u4f5c\u8bf4\u660e\uff0ccoding agent \u9700\u8981\u660e\u786e\u7684\u7ed3\u6784\u3001\u547d\u4ee4\u3001\u89c4\u5219\u548c\u5b89\u5168\u8fb9\u754c\u3002", risk: "safe" };
+  if (lower === ".env.example") return { ...change, reason: "A safe environment template helps contributors without committing real secrets.", reasonZh: "\u5b89\u5168\u7684\u73af\u5883\u53d8\u91cf\u6a21\u677f\u80fd\u5e2e\u52a9\u8d21\u732e\u8005\u914d\u7f6e\u9879\u76ee\uff0c\u540c\u65f6\u907f\u514d\u63d0\u4ea4\u771f\u5b9e\u5bc6\u94a5\u3002", risk: "safe" };
+  if (lower.includes("issue_template")) return { ...change, reason: "Issue templates make bug reports easier for maintainers and agents to triage.", reasonZh: "Issue \u6a21\u677f\u8ba9\u7ef4\u62a4\u8005\u548c agent \u66f4\u5bb9\u6613\u5206\u8bca\u95ee\u9898\u3002", risk: "safe" };
+  if (lower.includes("pull_request_template")) return { ...change, reason: "PR templates encourage reviewable changes with validation notes.", reasonZh: "PR \u6a21\u677f\u4fc3\u4f7f\u8d21\u732e\u8005\u63d0\u4ea4\u53ef\u5ba1\u67e5\u3001\u5e26\u9a8c\u8bc1\u8bf4\u660e\u7684\u4fee\u6539\u3002", risk: "safe" };
+  if (lower === "readme.md") return { ...change, reason: "README onboarding is incomplete, so agents and contributors need clearer install, usage, testing, and contribution guidance.", reasonZh: "README \u4e0a\u624b\u8bf4\u660e\u4e0d\u5b8c\u6574\uff0cagent \u548c\u8d21\u732e\u8005\u9700\u8981\u66f4\u6e05\u6670\u7684\u5b89\u88c5\u3001\u4f7f\u7528\u3001\u6d4b\u8bd5\u548c\u8d21\u732e\u6307\u5f15\u3002", risk: "review" };
+  if (lower === ".gitignore") return { ...change, reason: "Ignore rules keep generated files, caches, and secrets out of agent context.", reasonZh: "\u5ffd\u7565\u89c4\u5219\u80fd\u907f\u514d\u751f\u6210\u7269\u3001\u7f13\u5b58\u548c\u5bc6\u94a5\u6c61\u67d3 agent \u4e0a\u4e0b\u6587\u3002", risk: "review" };
+  if (lower.startsWith(".github/workflows/")) return { ...change, reason: "A minimal CI workflow makes agent-authored pull requests easier to validate.", reasonZh: "\u6700\u5c0f CI \u5de5\u4f5c\u6d41\u8ba9 agent \u751f\u6210\u7684 PR \u66f4\u5bb9\u6613\u88ab\u9a8c\u8bc1\u3002", risk: "review" };
+  return { ...change, ...defaults };
 }
 
 export function filterFixes(fixes, groups = []) {
@@ -1163,6 +1225,7 @@ export function renderPolicyReport(compliance, options = {}) {
 }
 
 export function buildFixPlan(report) {
+  const changes = report.fixes?.changes || [];
   const isSafePath = (filePath) => {
     const lower = filePath.toLowerCase();
     return lower === "agents.md" || lower === ".env.example" || lower.includes("issue_template") || lower.includes("pull_request_template");
@@ -1171,35 +1234,27 @@ export function buildFixPlan(report) {
     const lower = filePath.toLowerCase();
     return lower === "readme.md" || lower === ".gitignore" || lower.startsWith(".github/workflows/");
   };
-  const safe = report.fixes.changes.filter((change) => isSafePath(change.path));
-  const review = report.fixes.changes.filter((change) => requiresReviewPath(change.path));
+  const safe = changes.filter((change) => change.risk === "safe" || isSafePath(change.path));
+  const review = changes.filter((change) => change.risk === "review" || requiresReviewPath(change.path)).filter((change) => !safe.includes(change));
   const manual = [];
-  if (report.dangerousScripts.length) {
-    manual.push({ id: "dangerous-scripts", severity: "high", en: "Review dangerous scripts manually.", zh: "人工审查危险脚本。" });
-  }
-  if (report.repoHealth.envFiles.length) {
-    manual.push({ id: "committed-env-file", severity: "critical", en: "Remove committed env files manually and rotate exposed secrets.", zh: "人工移除已提交的环境变量文件，并轮换泄露密钥。" });
-  }
-  return {
-    safe,
-    review,
-    manual,
-    counts: { safe: safe.length, review: review.length, manual: manual.length }
-  };
+  if ((report.dangerousScripts || []).length) manual.push({ id: "dangerous-scripts", severity: "high", en: "Review dangerous scripts manually.", zh: "\u4eba\u5de5\u5ba1\u67e5\u5371\u9669\u811a\u672c\u3002" });
+  if ((report.repoHealth?.envFiles || []).length) manual.push({ id: "committed-env-file", severity: "critical", en: "Remove committed env files manually and rotate exposed secrets.", zh: "\u4eba\u5de5\u79fb\u9664\u5df2\u63d0\u4ea4\u7684 env \u6587\u4ef6\uff0c\u5e76\u8f6e\u6362\u53ef\u80fd\u6cc4\u9732\u7684\u5bc6\u94a5\u3002" });
+  return { safe, review, manual, counts: { safe: safe.length, review: review.length, manual: manual.length } };
 }
 
 export function renderFixPlan(plan, options = {}) {
   const zh = options.lang === "zh";
   const t = (en, cn) => (zh ? cn : en);
-  const lines = [`# RepoReady ${t("Fix Plan", "修复计划")}`, ""];
-  lines.push(`## ${t("Safe automatic fixes", "安全自动修复")}`);
-  lines.push(...(plan.safe.length ? plan.safe.map((c) => `- ${c.path}`) : [`- ${t("None", "无")}`]));
+  const lines = [`# RepoReady ${t("Fix Plan", "\u4fee\u590d\u8ba1\u5212")}`, ""];
+  const renderChange = (change) => `- ${change.path}${change.reason || change.reasonZh ? ` \u2014 ${zh ? change.reasonZh : change.reason}` : ""}`;
+  lines.push(`## ${t("Safe automatic fixes", "\u5b89\u5168\u81ea\u52a8\u4fee\u590d")}`);
+  lines.push(...(plan.safe.length ? plan.safe.map(renderChange) : [`- ${t("None", "\u65e0")}`]));
   lines.push("");
-  lines.push(`## ${t("Needs review", "需要审查")}`);
-  lines.push(...(plan.review.length ? plan.review.map((c) => `- ${c.path}`) : [`- ${t("None", "无")}`]));
+  lines.push(`## ${t("Needs review", "\u9700\u8981\u5ba1\u67e5")}`);
+  lines.push(...(plan.review.length ? plan.review.map(renderChange) : [`- ${t("None", "\u65e0")}`]));
   lines.push("");
-  lines.push(`## ${t("Manual only", "仅人工处理")}`);
-  lines.push(...(plan.manual.length ? plan.manual.map((item) => `- [${item.severity}] ${zh ? item.zh : item.en}`) : [`- ${t("None", "无")}`]));
+  lines.push(`## ${t("Manual only", "\u4ec5\u9650\u4eba\u5de5\u5904\u7406")}`);
+  lines.push(...(plan.manual.length ? plan.manual.map((item) => `- [${item.severity}] ${zh ? item.zh : item.en}`) : [`- ${t("None", "\u65e0")}`]));
   return lines.join("\n");
 }
 
@@ -1430,6 +1485,8 @@ ${rows.map(([k, v]) => `| ${k} | ${v}/100 |`).join("\n")}
 
 ${renderStrategyMarkdown(report, zh)}
 
+${renderAgentFailureRiskMarkdown(report, zh)}
+
 ## ${t("Evidence", "证据链")}
 
 ${(report.evidence || []).map((e) => `- ${e.status === "pass" ? "✓" : "!"} ${zh ? e.titleZh : e.title}${e.detail ? ` — ${e.detail}` : ""}`).join("\n") || `- ${t("No evidence available.", "暂无证据。")}`}
@@ -1482,38 +1539,34 @@ function renderScoreBreakdownMarkdown(report, zh) {
 }
 
 
+function renderAgentFailureRiskMarkdown(report, zh) {
+  const afr = report.agentFailureRisk;
+  if (!afr) return "";
+  const t = (en, cn) => (zh ? cn : en);
+  const risks = (afr.topRisks?.length ? afr.topRisks : afr.risks || []).slice(0, 5);
+  const body = risks.map((risk) => {
+    const evidence = (risk.evidence || []).map((item) => `  - ${item.source}: ${item.detail}`).join("\n");
+    return `### ${zh ? risk.titleZh : risk.title}\n\n- ${t("Level", "\u7b49\u7ea7")}: **${risk.level}** (${risk.score}/100)\n- ${t("Why agents fail", "\u4e3a\u4ec0\u4e48 agent \u4f1a\u5931\u8d25")}: ${zh ? risk.whyAgentsFailZh : risk.whyAgentsFail}\n- ${t("Mitigation", "\u7f13\u89e3\u65b9\u5f0f")}: ${zh ? risk.mitigationZh : risk.mitigation}\n- ${t("Fixability", "\u4fee\u590d\u5c5e\u6027")}: **${risk.fixability}**\n${evidence ? `- ${t("Evidence", "\u8bc1\u636e")}\n${evidence}` : ""}`;
+  }).join("\n\n");
+  return `## ${t("Agent Failure Risk", "Agent \u5931\u8d25\u98ce\u9669")}\n\n- ${t("Overall level", "\u6574\u4f53\u7b49\u7ea7")}: **${afr.overallLevel}**\n- ${zh ? afr.summaryZh : afr.summary}\n\n${body || `- ${t("No major agent failure risks detected.", "\u672a\u53d1\u73b0\u4e3b\u8981 agent \u5931\u8d25\u98ce\u9669\u3002")}`}\n`;
+}
+
 function renderStrategyMarkdown(report, zh) {
   const strategy = report.strategy;
   if (!strategy) return "";
   const t = (en, cn) => (zh ? cn : en);
-  const actions = strategy.priorityActions
-    .map((action) => `- **${action.impact}/${action.effort}**: ${zh ? action.zh : action.en}${action.command ? `\n  - \`${action.command}\`` : ""}`)
-    .join("\n");
-  const boundaries = strategy.automationBoundary
-    .map((item) => `- **${item.level}**: ${zh ? item.zh : item.en}`)
-    .join("\n");
+  const actions = strategy.priorityActions.map((action) => `- **${action.impact}/${action.effort}**: ${zh ? action.zh : action.en}${action.command ? `\n  - \`${action.command}\`` : ""}`).join("\n");
+  const boundaries = strategy.automationBoundary.map((item) => `- **${item.level}**: ${zh ? item.zh : item.en}`).join("\n");
   const growth = strategy.growthPlan.map((item) => `- ${zh ? item.zh : item.en}`).join("\n");
-  return `## ${t("Strategy", "??")}
-
-${strategy.summary[zh ? "zh" : "en"]}
-
-- ${t("Posture", "??")}: **${strategy.posture}**
-- ${t("Risk level", "????")}: **${strategy.riskLevel}**
-- ${t("Readiness gap", "????")}: **${strategy.readinessGap}**
-- ${t("Evidence confidence", "?????")}: **${strategy.evidenceConfidence}%**
-
-### ${t("Priority actions", "????")}
-
-${actions || `- ${t("No priority actions.", "???????")}`}
-
-### ${t("Automation boundary", "?????")}
-
-${boundaries}
-
-### ${t("Growth plan", "????")}
-
-${growth}
-`;
+  const recommendedPath = strategy.recommendedPath ? [
+    `#### ${t("Now", "\u73b0\u5728")}`,
+    ...(strategy.recommendedPath.now?.length ? strategy.recommendedPath.now.map((item) => `- ${zh ? item.zh : item.en}${item.command ? `\n  - \`${item.command}\`` : ""}`) : [`- ${t("No immediate action.", "\u6682\u65e0\u7acb\u5373\u52a8\u4f5c\u3002")}`]),
+    `#### ${t("Next", "\u4e0b\u4e00\u6b65")}`,
+    ...(strategy.recommendedPath.next?.length ? strategy.recommendedPath.next.map((item) => `- ${zh ? item.zh : item.en}`) : [`- ${t("No review-required fixes.", "\u6682\u65e0\u9700\u8981\u5ba1\u67e5\u7684\u4fee\u590d\u3002")}`]),
+    `#### ${t("Later", "\u4e4b\u540e")}`,
+    ...(strategy.recommendedPath.later?.length ? strategy.recommendedPath.later.map((item) => `- ${zh ? item.zh : item.en}`) : [`- ${t("No later actions.", "\u6682\u65e0\u540e\u7eed\u52a8\u4f5c\u3002")}`])
+  ].join("\n") : "";
+  return `## ${t("Strategy", "\u7b56\u7565")}\n\n${strategy.summary[zh ? "zh" : "en"]}\n\n- ${t("Posture", "\u6001\u52bf")}: **${strategy.posture}**\n- ${t("Risk level", "\u98ce\u9669\u7b49\u7ea7")}: **${strategy.riskLevel}**\n- ${t("Readiness gap", "\u9002\u914d\u5dee\u8ddd")}: **${strategy.readinessGap}**\n- ${t("Evidence confidence", "\u8bc1\u636e\u53ef\u4fe1\u5ea6")}: **${strategy.evidenceConfidence}%**\n\n### ${t("Priority actions", "\u4f18\u5148\u52a8\u4f5c")}\n\n${actions || `- ${t("No priority actions.", "\u6682\u65e0\u4f18\u5148\u52a8\u4f5c\u3002")}`}\n\n### ${t("Recommended path", "\u63a8\u8350\u8def\u5f84")}\n\n${recommendedPath}\n\n### ${t("Automation boundary", "\u81ea\u52a8\u5316\u8fb9\u754c")}\n\n${boundaries}\n\n### ${t("Growth plan", "\u4f20\u64ad\u8ba1\u5212")}\n\n${growth}\n`;
 }
 
 function buildDeepAnalysisMarkdown(report, zh) {

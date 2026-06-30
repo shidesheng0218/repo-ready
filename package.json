@@ -1,6 +1,6 @@
 {
   "name": "@shidesheng0218/repo-ready",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Make your repo ready for Codex, Claude Code, Cursor, and contributors.",
   "type": "module",
   "packageManager": "pnpm@9.0.0",
@@ -56,4 +56,3 @@
   ],
   "license": "MIT"
 }
-
