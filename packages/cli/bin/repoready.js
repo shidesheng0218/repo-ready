@@ -34,6 +34,7 @@ const isPolicy = args[0] === "policy";
 const lang = readOption("--lang") || (args.includes("--zh") ? "zh" : "en");
 const json = args.includes("--json");
 const markdown = args.includes("--markdown");
+const compact = args.includes("--compact") || args.includes("--screenshot");
 const branch = args.includes("--branch");
 const createPr = args.includes("--pr");
 const fixPlan = args.includes("--plan");
@@ -168,7 +169,7 @@ try {
     await saveReportBaseline(report, targetArg ? path.resolve(targetArg) : process.cwd());
   }
   const format = json ? "json" : markdown ? "markdown" : "text";
-  console.log(format === "text" ? renderPrettyReport(report, lang) : renderReport(report, { lang, format }));
+  console.log(format === "text" ? renderPrettyReport(report, lang, { compact }) : renderReport(report, { lang, format }));
 } catch (error) {
   console.error(`RepoReady error: ${error.message}`);
   process.exit(1);
@@ -320,7 +321,43 @@ ${files || "- No files"}
 `;
 }
 
-function renderPrettyReport(report, lang) {
+function renderPrettyReport(report, lang, options = {}) {
+  return options.compact ? renderCompactReport(report, lang) : renderFullReport(report, lang);
+}
+
+function renderCompactReport(report, lang) {
+  const zh = lang === "zh";
+  const lines = [];
+  const repoName = report.repository.fullName || report.repository.name;
+  lines.push(`RepoReady Report - ${repoName}`);
+  lines.push("");
+  lines.push(`${pad("Overall Score", 20)} ${report.scores.overall}/100`);
+  lines.push(`${pad("Agent Ready", 20)} ${report.scores.agentReady}/100`);
+  lines.push(`${pad("Safety", 20)} ${report.scores.safety}/100`);
+  lines.push("");
+  lines.push("Agent Failure Risk");
+  const risks = report.agentFailureRisk?.topRisks?.length ? report.agentFailureRisk.topRisks : report.agentFailureRisk?.risks || [];
+  for (const risk of risks.slice(0, 3)) {
+    lines.push(`${pad(String(risk.level || "low").toUpperCase(), 8)} ${truncate(zh ? risk.titleZh : risk.title, 48)}`);
+  }
+  if (!risks.length) lines.push(`${pad("LOW", 8)} No major agent failure risks`);
+  lines.push("");
+  lines.push("Evidence Chain");
+  for (const evidence of (report.evidence || []).slice(0, 4)) {
+    lines.push(`${pad(evidence.status.toUpperCase(), 8)} ${truncate(zh ? evidence.titleZh : evidence.title, 58)}`);
+  }
+  if (!(report.evidence || []).length) lines.push(`${pad("INFO", 8)} No evidence available`);
+  lines.push("");
+  lines.push("PR-ready Fixes");
+  for (const change of report.fixes.changes.slice(0, 5)) lines.push(`+ ${truncate(change.path, 62)}`);
+  if (!report.fixes.changes.length) lines.push("No generated fixes required.");
+  lines.push("");
+  lines.push("Next");
+  lines.push("npx @shidesheng0218/repo-ready@latest fix --dry-run");
+  return lines.join("\n");
+}
+
+function renderFullReport(report, lang) {
   const zh = lang === "zh";
   const t = (en, cn) => (zh ? cn : en);
   const localized = (value, fallbackEn, fallbackZh = fallbackEn) => {
@@ -329,7 +366,8 @@ function renderPrettyReport(report, lang) {
     return value[zh ? "zh" : "en"] || value.en || value.zh || (zh ? fallbackZh : fallbackEn);
   };
   const lines = [];
-  lines.push(`\nRepoReady ${t("Report", "报告")} · ${report.repository.name}`);
+  const repoName = report.repository.fullName || report.repository.name;
+  lines.push(`\nRepoReady ${t("Report", "报告")} - ${repoName}`);
   lines.push("=".repeat(Math.min(72, lines[0].length)));
   lines.push(`${t("Overall Score", "总分")}: ${report.scores.overall}/100 ${bar(report.scores.overall)}`);
   lines.push("");
@@ -339,64 +377,68 @@ function renderPrettyReport(report, lang) {
   lines.push(`Safety              ${bar(report.scores.safety)} ${report.scores.safety}/100`);
   lines.push(`Code Quality        ${bar(report.scores.codeQuality || 0)} ${report.scores.codeQuality || 0}/100`);
   lines.push("");
-  lines.push(t("Evidence", "证据链"));
-  for (const evidence of (report.evidence || []).slice(0, 8)) {
-    const mark = evidence.status === "pass" ? "✓" : "!";
-    const title = zh ? evidence.titleZh : evidence.title;
-    lines.push(`  ${mark} ${title}${evidence.detail ? ` — ${evidence.detail}` : ""}`);
+
+  const risks = report.agentFailureRisk?.topRisks || [];
+  lines.push(t("Agent Failure Risk", "Agent 失败风险"));
+  if (!risks.length) lines.push(`  ${t("No major agent failure risks detected.", "未发现主要 agent 失败风险")}`);
+  for (const risk of risks.slice(0, 5)) {
+    lines.push(`  ${String(risk.level).toUpperCase()}  ${zh ? risk.titleZh : risk.title} - ${risk.score}/100`);
   }
   lines.push("");
-  lines.push(t("Score Breakdown", "评分拆解"));
-  for (const item of (report.scoreBreakdown?.agentReady || []).slice(0, 4)) {
-    lines.push(`  - ${zh ? item.labelZh : item.label}: ${item.earned}/${item.max}${item.detail ? ` — ${item.detail}` : ""}`);
+
+  lines.push(t("Evidence Chain", "证据链"));
+  for (const evidence of (report.evidence || []).slice(0, 8)) {
+    const mark = evidence.status === "pass" ? "PASS" : evidence.status === "review" ? "REVIEW" : "FAIL";
+    const title = zh ? evidence.titleZh : evidence.title;
+    lines.push(`  ${pad(mark, 7)} ${truncate(title, 74)}`);
   }
-  for (const item of (report.scoreBreakdown?.codeQuality || []).slice(0, 4)) {
-    lines.push(`  - ${zh ? item.labelZh : item.label}: ${item.earned}/${item.max}${item.detail ? ` — ${item.detail}` : ""}`);
-  }
+  if (!(report.evidence || []).length) lines.push(`  ${t("No evidence available.", "暂无证据")}`);
+
   lines.push("");
   lines.push(t("Top Issues", "主要问题"));
   const top = report.issues.slice(0, 5);
-  if (!top.length) lines.push(`  ${t("No major issues detected.", "未发现主要问题。")}`);
-  for (const issue of top) lines.push(`  ${icon(issue.severity)} [${issue.severity}] ${zh ? issue.titleZh : issue.title}`);
+  if (!top.length) lines.push(`  ${t("No major issues detected.", "未发现主要问题")}`);
+  for (const issue of top) lines.push(`  ${icon(issue.severity)} [${issue.severity}] ${truncate(zh ? issue.titleZh : issue.title, 76)}`);
+
   const quick = report.recommendations.filter((r) => r.fixable).slice(0, 5);
   lines.push("");
   lines.push(t("Quick Wins", "快速修复"));
-  if (!quick.length) lines.push(`  ${t("No quick fixes required.", "暂无快速修复项。")}`);
-  for (const rec of quick) lines.push(`  - ${zh ? rec.zh : rec.en}`);
+  if (!quick.length) lines.push(`  ${t("No quick fixes required.", "暂无快速修复项")}`);
+  for (const rec of quick) lines.push(`  - ${truncate(zh ? rec.zh : rec.en, 78)}`);
+
   const manual = report.recommendations.filter((r) => !r.fixable);
   lines.push("");
   lines.push(t("Manual Review", "人工审查"));
-  if (!manual.length) lines.push(`  ${t("No manual review warnings.", "暂无人工审查警告。")}`);
-  for (const rec of manual.slice(0, 5)) lines.push(`  - ${zh ? rec.zh : rec.en}`);
+  if (!manual.length) lines.push(`  ${t("No manual review warnings.", "暂无人工审查警告")}`);
+  for (const rec of manual.slice(0, 4)) lines.push(`  - ${truncate(zh ? rec.zh : rec.en, 78)}`);
+
   lines.push("");
   lines.push(t("PR-ready Fixes", "可生成 PR 的修复"));
-  if (!report.fixes.changes.length) lines.push(`  ${t("No generated fixes required.", "暂无需要生成的修复。")}`);
-  for (const change of report.fixes.changes.slice(0, 8)) lines.push(`  + ${change.path}`);
+  if (!report.fixes.changes.length) lines.push(`  ${t("No generated fixes required.", "暂无需要生成的修复")}`);
+  for (const change of report.fixes.changes.slice(0, 8)) lines.push(`  + ${truncate(change.path, 78)}`);
+
   lines.push("");
   lines.push(t("Next command", "下一步命令"));
-  lines.push(`  npx @shidesheng0218/repo-ready fix --dry-run`);
+  lines.push("  npx @shidesheng0218/repo-ready@latest fix --dry-run");
 
   if (report.deepAnalysis) {
     lines.push("");
     lines.push(t("Deep Analysis", "深度分析"));
     if (report.deepAnalysis.readmeQuality) {
       lines.push(`  README Quality: ${report.deepAnalysis.readmeQuality.grade} (${report.deepAnalysis.readmeQuality.score}/100)`);
-      lines.push(`  ${localized(report.deepAnalysis.readmeQuality.summary, "README analysis completed, but no summary was available.", "README 分析已完成，但暂无摘要。")}`);
+      lines.push(`  ${truncate(localized(report.deepAnalysis.readmeQuality.summary, "README analysis completed, but no summary was available.", "README 分析完成，但没有可用摘要。"), 78)}`);
     }
     if (report.deepAnalysis.dependencyHealth) {
       lines.push(`  Dependencies: ${report.deepAnalysis.dependencyHealth.score}/100`);
-      lines.push(`  ${localized(report.deepAnalysis.dependencyHealth.summary, "Dependency analysis completed, but no summary was available.", "依赖分析已完成，但暂无摘要。")}`);
+      lines.push(`  ${truncate(localized(report.deepAnalysis.dependencyHealth.summary, "Dependency analysis completed, but no summary was available.", "依赖分析完成，但没有可用摘要。"), 78)}`);
     }
     if (report.deepAnalysis.safetyBoundaries) {
       lines.push(`  Safety Boundaries: ${report.deepAnalysis.safetyBoundaries.score}/100`);
-      lines.push(`  ${localized(report.deepAnalysis.safetyBoundaries.summary, "Safety analysis completed, but no summary was available.", "安全边界分析已完成，但暂无摘要。")}`);
-      for (const boundary of report.deepAnalysis.safetyBoundaries.boundaries.slice(0, 3)) {
-        lines.push(`  - ${zh ? boundary.zh : boundary.en}`);
-      }
+      lines.push(`  ${truncate(localized(report.deepAnalysis.safetyBoundaries.summary, "Safety analysis completed, but no summary was available.", "安全边界分析完成，但没有可用摘要。"), 78)}`);
     }
     if (report.deepAnalysis.taskGraph) {
       lines.push(`  Task Graph: ${report.deepAnalysis.taskGraph.totalTasks} tasks`);
-      lines.push(`  ${localized(report.deepAnalysis.taskGraph.summary, "Task analysis completed, but no summary was available.", "任务分析已完成，但暂无摘要。")}`);
+      lines.push(`  ${truncate(localized(report.deepAnalysis.taskGraph.summary, "Task analysis completed, but no summary was available.", "任务分析完成，但没有可用摘要。"), 78)}`);
     }
   }
 
@@ -404,12 +446,21 @@ function renderPrettyReport(report, lang) {
 }
 
 function bar(score) {
-  const filled = Math.round(score / 10);
+  const filled = Math.max(0, Math.min(10, Math.round(score / 10)));
   return "█".repeat(filled) + "░".repeat(10 - filled);
 }
 
 function icon(severity) {
-  return severity === "high" ? "!" : severity === "medium" ? "›" : "-";
+  return severity === "high" ? "!" : severity === "medium" ? ">" : "-";
+}
+
+function pad(value, width) {
+  return String(value || "").padEnd(width, " ");
+}
+
+function truncate(value, max = 76) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  return text.length > max ? `${text.slice(0, Math.max(0, max - 1))}?` : text;
 }
 
 function printHelp() {
@@ -421,6 +472,8 @@ Usage:
   repoready --lang zh
   repoready --json
   repoready --markdown
+  repoready --compact
+  repoready --screenshot
   repoready --save-baseline
   repoready spec
   repoready policy init
@@ -445,6 +498,7 @@ Usage:
 
 Safety:
   Scan never executes repository scripts.
+  --compact and --screenshot print a shorter report for sharing.
   spec prints the Agent Ready Repository Standard.
   policy init prints or writes a default .repoready/policy.yml.
   policy check evaluates the repository against .repoready/policy.yml when present.

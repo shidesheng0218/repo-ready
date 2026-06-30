@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="RepoReady CLI preview">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop stop-color="#fbfdff"/>
+      <stop offset="1" stop-color="#eef4ff"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="0" x2="1">
+      <stop stop-color="#0f172a"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="28" stdDeviation="34" flood-color="#0f172a" flood-opacity=".14"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <circle cx="1030" cy="84" r="260" fill="#2563eb" opacity=".10"/>
+  <circle cx="90" cy="590" r="240" fill="#0ea5e9" opacity=".10"/>
+  <rect x="70" y="62" width="1060" height="506" rx="42" fill="#ffffff" stroke="#dbe5f3" filter="url(#shadow)"/>
+  <rect x="110" y="104" width="38" height="38" rx="12" fill="url(#ink)"/>
+  <text x="164" y="132" font-family="Segoe UI,Arial,sans-serif" font-size="25" font-weight="850" fill="#0f172a">RepoReady</text>
+  <text x="110" y="212" font-family="Segoe UI,Arial,sans-serif" font-size="54" font-weight="900" fill="#0f172a" letter-spacing="-2.2">Check if your repo is ready</text>
+  <text x="110" y="266" font-family="Segoe UI,Arial,sans-serif" font-size="32" font-weight="850" fill="#2563eb" letter-spacing="-1">for Codex, Claude Code, Cursor</text>
+  <rect x="110" y="318" width="470" height="62" rx="20" fill="#10141c"/>
+  <text x="138" y="357" font-family="Consolas,Menlo,monospace" font-size="22" fill="#e7eefb">npx @shidesheng0218/repo-ready@latest</text>
+  <rect x="632" y="104" width="418" height="404" rx="26" fill="#10141c"/>
+  <rect x="632" y="104" width="418" height="44" rx="26" fill="#151b26"/>
+  <circle cx="660" cy="126" r="6" fill="#475569"/>
+  <circle cx="682" cy="126" r="6" fill="#475569"/>
+  <circle cx="704" cy="126" r="6" fill="#475569"/>
+  <text x="662" y="184" font-family="Consolas,Menlo,monospace" font-size="18" fill="#e7eefb">RepoReady Report - my-repo</text>
+  <text x="662" y="230" font-family="Consolas,Menlo,monospace" font-size="17" fill="#93c5fd">Overall Score       82/100</text>
+  <text x="662" y="260" font-family="Consolas,Menlo,monospace" font-size="17" fill="#e7eefb">Agent Ready         70/100</text>
+  <text x="662" y="290" font-family="Consolas,Menlo,monospace" font-size="17" fill="#e7eefb">Safety              92/100</text>
+  <text x="662" y="342" font-family="Consolas,Menlo,monospace" font-size="17" fill="#93c5fd">Agent Failure Risk</text>
+  <text x="662" y="372" font-family="Consolas,Menlo,monospace" font-size="16" fill="#fbbf24">HIGH    Validation Gap</text>
+  <text x="662" y="400" font-family="Consolas,Menlo,monospace" font-size="16" fill="#e7eefb">MEDIUM  Scope Drift</text>
+  <text x="662" y="452" font-family="Consolas,Menlo,monospace" font-size="17" fill="#93c5fd">PR-ready Fixes</text>
+  <text x="662" y="482" font-family="Consolas,Menlo,monospace" font-size="16" fill="#86efac">+ AGENTS.md  + README.md  + CI</text>
+  <text x="110" y="454" font-family="Segoe UI,Arial,sans-serif" font-size="22" fill="#475569">Agent Failure Risk · Evidence Chain · Fix PR Plan</text>
+  <text x="110" y="500" font-family="Segoe UI,Arial,sans-serif" font-size="20" font-weight="800" fill="#0f172a">CLI-first. No server required. No AI API cost by default.</text>
+</svg>
